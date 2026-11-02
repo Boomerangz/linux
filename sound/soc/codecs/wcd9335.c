@@ -325,6 +325,8 @@ struct wcd9335_codec {
 	int clk_rco_users;
 	int sido_ccl_cnt;
 	enum wcd_clock_type clk_type;
+	/* MBHC and DAPM both ask for MCLK and the bias behind it */
+	struct mutex sysclk_lock;
 
 	struct wcd_clsh_ctrl *clsh_ctrl;
 	u32 hph_mode;
@@ -344,6 +346,7 @@ struct wcd9335_codec {
 	/*TX*/
 	int micb_ref[WCD9335_MAX_MICBIAS];
 	int pullup_ref[WCD9335_MAX_MICBIAS];
+	struct mutex micb_lock; /* micb_ref and pullup_ref */
 
 	int dmic_0_1_clk_cnt;
 	int dmic_2_3_clk_cnt;
@@ -2556,6 +2559,8 @@ static int wcd9335_micbias_control(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 
+	guard(mutex)(&wcd->micb_lock);
+
 	switch (req) {
 	case MICB_PULLUP_ENABLE:
 		wcd->pullup_ref[micb_index]++;
@@ -2565,7 +2570,8 @@ static int wcd9335_micbias_control(struct snd_soc_component *component,
 							0xC0, 0x80);
 		break;
 	case MICB_PULLUP_DISABLE:
-		wcd->pullup_ref[micb_index]--;
+		if (wcd->pullup_ref[micb_index] > 0)
+			wcd->pullup_ref[micb_index]--;
 		if ((wcd->pullup_ref[micb_index] == 0) &&
 		    (wcd->micb_ref[micb_index] == 0))
 			snd_soc_component_update_bits(component, micb_reg,
@@ -2578,7 +2584,8 @@ static int wcd9335_micbias_control(struct snd_soc_component *component,
 							0xC0, 0x40);
 		break;
 	case MICB_DISABLE:
-		wcd->micb_ref[micb_index]--;
+		if (wcd->micb_ref[micb_index] > 0)
+			wcd->micb_ref[micb_index]--;
 		if ((wcd->micb_ref[micb_index] == 0) &&
 		    (wcd->pullup_ref[micb_index] > 0))
 			snd_soc_component_update_bits(component, micb_reg,
@@ -4266,6 +4273,8 @@ static int _wcd9335_codec_enable_mclk(struct snd_soc_component *component,
 	struct wcd9335_codec *wcd = dev_get_drvdata(component->dev);
 	int ret;
 
+	guard(mutex)(&wcd->sysclk_lock);
+
 	if (enable) {
 		ret = wcd9335_cdc_req_mclk_enable(wcd, true);
 		if (ret)
@@ -5229,6 +5238,14 @@ static int wcd9335_slim_probe(struct slim_device *slim)
 		return	-ENOMEM;
 
 	wcd->dev = dev;
+	ret = devm_mutex_init(dev, &wcd->sysclk_lock);
+	if (ret)
+		return ret;
+
+	ret = devm_mutex_init(dev, &wcd->micb_lock);
+	if (ret)
+		return ret;
+
 	ret = wcd9335_parse_dt(wcd);
 	if (ret)
 		return ret;
