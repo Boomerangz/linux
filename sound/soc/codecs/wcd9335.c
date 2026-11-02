@@ -26,6 +26,7 @@
 #include <sound/info.h>
 #include "wcd9335.h"
 #include "wcd-clsh-v2.h"
+#include "wcd-mbhc-v2.h"
 
 #include <dt-bindings/sound/qcom,wcd9335.h>
 
@@ -66,6 +67,14 @@
 #define WCD9335_RX_START	16
 #define WCD9335_SLIM_CH_START 128
 #define WCD9335_MAX_MICBIAS 4
+/*
+ * HS_VREF code 3 in wcd-mbhc-v2. Measured on a Galaxy Tab S3 with MIC BIAS2 at
+ * 1.8 V: codes 0 to 2 read above at any mic line level down to 0.6 V, code 3
+ * switches at about 1.14 V, so a headset of up to about 3.8 kohm reads as one.
+ */
+#define WCD9335_MBHC_HS_V_MAX 1700
+#define WCD9335_MICB_ENABLE 1
+#define WCD9335_ANA_MICB_EN_MASK GENMASK(7, 6)
 #define WCD9335_MAX_VALID_ADC_MUX  13
 #define WCD9335_INVALID_ADC_MUX 9
 
@@ -270,20 +279,6 @@ enum wcd_clock_type {
 	WCD_CLK_MCLK,
 };
 
-enum {
-	MIC_BIAS_1 = 1,
-	MIC_BIAS_2,
-	MIC_BIAS_3,
-	MIC_BIAS_4
-};
-
-enum {
-	MICB_PULLUP_ENABLE,
-	MICB_PULLUP_DISABLE,
-	MICB_ENABLE,
-	MICB_DISABLE,
-};
-
 struct wcd9335_slim_ch {
 	u32 ch_num;
 	u16 port;
@@ -352,6 +347,12 @@ struct wcd9335_codec {
 	int dmic_0_1_clk_cnt;
 	int dmic_2_3_clk_cnt;
 	int dmic_4_5_clk_cnt;
+
+	struct wcd_mbhc *mbhc;
+	struct wcd_mbhc_config mbhc_cfg;
+	struct wcd_mbhc_intr intr_ids;
+	bool mbhc_started;
+	bool mbhc_micb_held;
 };
 
 struct wcd9335_irq {
@@ -2580,9 +2581,16 @@ static int wcd9335_micbias_control(struct snd_soc_component *component,
 		break;
 	case MICB_ENABLE:
 		wcd->micb_ref[micb_index]++;
-		if (wcd->micb_ref[micb_index] == 1)
+		if (wcd->micb_ref[micb_index] == 1) {
 			snd_soc_component_update_bits(component, micb_reg,
 							0xC0, 0x40);
+			if (micb_num == MIC_BIAS_2)
+				wcd_mbhc_event_notify(wcd->mbhc,
+						      WCD_EVENT_POST_MICBIAS_2_ON);
+		}
+		if (micb_num == MIC_BIAS_2 && is_dapm)
+			wcd_mbhc_event_notify(wcd->mbhc,
+					      WCD_EVENT_POST_DAPM_MICBIAS_2_ON);
 		break;
 	case MICB_DISABLE:
 		if (wcd->micb_ref[micb_index] > 0)
@@ -2593,9 +2601,18 @@ static int wcd9335_micbias_control(struct snd_soc_component *component,
 							0xC0, 0x80);
 		else if ((wcd->micb_ref[micb_index] == 0) &&
 			 (wcd->pullup_ref[micb_index] == 0)) {
+			if (micb_num == MIC_BIAS_2)
+				wcd_mbhc_event_notify(wcd->mbhc,
+						      WCD_EVENT_PRE_MICBIAS_2_OFF);
 			snd_soc_component_update_bits(component, micb_reg,
 							0xC0, 0x00);
+			if (micb_num == MIC_BIAS_2)
+				wcd_mbhc_event_notify(wcd->mbhc,
+						      WCD_EVENT_POST_MICBIAS_2_OFF);
 		}
+		if (micb_num == MIC_BIAS_2 && is_dapm)
+			wcd_mbhc_event_notify(wcd->mbhc,
+					      WCD_EVENT_POST_DAPM_MICBIAS_2_OFF);
 		break;
 	}
 
@@ -3715,6 +3732,7 @@ static int wcd9335_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		wcd_mbhc_event_notify(wcd->mbhc, WCD_EVENT_PRE_HPHL_PA_ON);
 		break;
 	case SND_SOC_DAPM_POST_PMU:
 		/*
@@ -3747,6 +3765,7 @@ static int wcd9335_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 		 * HW requirement
 		 */
 		usleep_range(5000, 5500);
+		wcd_mbhc_event_notify(wcd->mbhc, WCD_EVENT_POST_HPHL_PA_OFF);
 		break;
 	}
 
@@ -3864,6 +3883,7 @@ static int wcd9335_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+		wcd_mbhc_event_notify(wcd->mbhc, WCD_EVENT_PRE_HPHR_PA_ON);
 		break;
 	case SND_SOC_DAPM_POST_PMU:
 		/*
@@ -3895,6 +3915,7 @@ static int wcd9335_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 		 * HW requirement
 		 */
 		usleep_range(5000, 5500);
+		wcd_mbhc_event_notify(wcd->mbhc, WCD_EVENT_POST_HPHR_PA_OFF);
 		break;
 	}
 
@@ -4867,6 +4888,196 @@ static void wcd9335_codec_init(struct snd_soc_component *component)
 	wcd9335_enable_efuse_sensing(component);
 }
 
+static const struct wcd_mbhc_field wcd9335_mbhc_fields[WCD_MBHC_REG_FUNC_MAX] = {
+	WCD_MBHC_FIELD(WCD_MBHC_L_DET_EN, WCD9335_ANA_MBHC_MECH, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_GND_DET_EN, WCD9335_ANA_MBHC_MECH, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_MECH_DETECTION_TYPE, WCD9335_ANA_MBHC_MECH, 0x20),
+	WCD_MBHC_FIELD(WCD_MBHC_MIC_CLAMP_CTL, WCD9335_MBHC_PLUG_DETECT_CTL, 0x30),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_DETECTION_TYPE, WCD9335_ANA_MBHC_ELECT, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_L_DET_PULL_UP_CTRL, WCD9335_MBHC_PLUG_DETECT_CTL, 0xC0),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_L_DET_PULL_UP_COMP_CTRL, WCD9335_ANA_MBHC_MECH, 0x04),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_PLUG_TYPE, WCD9335_ANA_MBHC_MECH, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_GND_PLUG_TYPE, WCD9335_ANA_MBHC_MECH, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_SW_HPH_LP_100K_TO_GND, WCD9335_ANA_MBHC_MECH, 0x01),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_SCHMT_ISRC, WCD9335_ANA_MBHC_ELECT, 0x06),
+	WCD_MBHC_FIELD(WCD_MBHC_FSM_EN, WCD9335_ANA_MBHC_ELECT, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_INSREM_DBNC, WCD9335_MBHC_PLUG_DETECT_CTL, 0x0F),
+	WCD_MBHC_FIELD(WCD_MBHC_BTN_DBNC, WCD9335_MBHC_CTL_1, 0x03),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_VREF, WCD9335_MBHC_CTL_2, 0x03),
+	WCD_MBHC_FIELD(WCD_MBHC_HS_COMP_RESULT, WCD9335_ANA_MBHC_RESULT_3, 0x08),
+	WCD_MBHC_FIELD(WCD_MBHC_MIC_SCHMT_RESULT, WCD9335_ANA_MBHC_RESULT_3, 0x20),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_SCHMT_RESULT, WCD9335_ANA_MBHC_RESULT_3, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_SCHMT_RESULT, WCD9335_ANA_MBHC_RESULT_3, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_OCP_FSM_EN, WCD9335_HPH_OCP_CTL, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_BTN_RESULT, WCD9335_ANA_MBHC_RESULT_3, 0x07),
+	WCD_MBHC_FIELD(WCD_MBHC_BTN_ISRC_CTL, WCD9335_ANA_MBHC_ELECT, 0x70),
+	WCD_MBHC_FIELD(WCD_MBHC_ELECT_RESULT, WCD9335_ANA_MBHC_RESULT_3, 0xFF),
+	WCD_MBHC_FIELD(WCD_MBHC_MICB_CTRL, WCD9335_ANA_MICB2, 0xC0),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_PA_EN, WCD9335_ANA_HPH, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_PA_EN, WCD9335_ANA_HPH, 0x80),
+	WCD_MBHC_FIELD(WCD_MBHC_HPH_PA_EN, WCD9335_ANA_HPH, 0xC0),
+	WCD_MBHC_FIELD(WCD_MBHC_SWCH_LEVEL_REMOVE, WCD9335_ANA_MBHC_RESULT_3, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_ANC_DET_EN, WCD9335_ANA_MBHC_ZDET, 0x01),
+	WCD_MBHC_FIELD(WCD_MBHC_MUX_CTL, WCD9335_MBHC_CTL_2, 0x70),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHR_GND, WCD9335_HPH_PA_CTL2, 0x40),
+	WCD_MBHC_FIELD(WCD_MBHC_HPHL_GND, WCD9335_HPH_PA_CTL2, 0x10),
+	WCD_MBHC_FIELD(WCD_MBHC_MICB2_VOUT, WCD9335_ANA_MICB2, 0x3F),
+};
+
+static void wcd9335_mbhc_clk_setup(struct snd_soc_component *comp, bool enable)
+{
+	snd_soc_component_write_field(comp, WCD9335_MBHC_CTL_1,
+				      WCD9335_MBHC_CTL_RCO_EN_MASK, enable);
+}
+
+static void wcd9335_mbhc_bias_control(struct snd_soc_component *comp, bool enable)
+{
+	snd_soc_component_write_field(comp, WCD9335_ANA_MBHC_ELECT,
+				      WCD9335_ANA_MBHC_BIAS_EN_MASK, enable);
+}
+
+/*
+ * The FSM ramps micbias to its pull up when it sees a press, so one set of
+ * thresholds does for all sources. They are in mV at 1.8 V and 12.5 mV a step.
+ */
+static void wcd9335_mbhc_program_btn_thr(struct snd_soc_component *comp,
+					 int *btn_low, int *btn_high,
+					 int num_btn, bool is_micbias)
+{
+	int i, vth;
+
+	for (i = 0; i < num_btn; i++) {
+		vth = ((btn_high[i] * 2) / 25) & 0x3F;
+		snd_soc_component_write_field(comp, WCD9335_ANA_MBHC_BTN0 + i,
+					      WCD9335_MBHC_BTN_VTH_MASK, vth);
+	}
+}
+
+static bool wcd9335_mbhc_micb_en_status(struct snd_soc_component *comp, int micb_num)
+{
+	if (micb_num != MIC_BIAS_2)
+		return false;
+
+	return snd_soc_component_read_field(comp, WCD9335_ANA_MICB2,
+					    WCD9335_ANA_MICB_EN_MASK) == WCD9335_MICB_ENABLE;
+}
+
+static void wcd9335_mbhc_hph_l_pull_up_control(struct snd_soc_component *comp,
+					       enum mbhc_hs_pullup_iref pull_up_cur)
+{
+	/* Default pull up current to 2uA */
+	if (pull_up_cur < I_OFF || pull_up_cur > I_3P0_UA)
+		pull_up_cur = I_2P0_UA;
+
+	snd_soc_component_write_field(comp, WCD9335_MBHC_PLUG_DETECT_CTL,
+				      WCD9335_MBHC_HSDET_PULLUP_CTL_MASK, pull_up_cur);
+}
+
+/*
+ * Micbias runs off MCLK. wcd-mbhc asks to disable it more often than to enable
+ * it, on every removal for one, so hold a single reference for it here: an
+ * extra disable must not take away one that belongs to a capture stream.
+ */
+static int wcd9335_mbhc_request_micbias(struct snd_soc_component *comp,
+					int micb_num, int req)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(comp->dev);
+	int ret;
+
+	switch (req) {
+	case MICB_ENABLE:
+		if (wcd->mbhc_micb_held)
+			return 0;
+
+		ret = _wcd9335_codec_enable_mclk(comp, true);
+		if (ret)
+			return ret;
+
+		wcd->mbhc_micb_held = true;
+		return wcd9335_micbias_control(comp, micb_num, req, false);
+	case MICB_DISABLE:
+		if (!wcd->mbhc_micb_held)
+			return 0;
+
+		ret = wcd9335_micbias_control(comp, micb_num, req, false);
+		_wcd9335_codec_enable_mclk(comp, false);
+		wcd->mbhc_micb_held = false;
+		return ret;
+	default:
+		return wcd9335_micbias_control(comp, micb_num, req, false);
+	}
+}
+
+static void wcd9335_mbhc_gnd_det_ctrl(struct snd_soc_component *comp, bool enable)
+{
+	snd_soc_component_update_bits(comp, WCD9335_ANA_MBHC_MECH, 0x02,
+				      enable ? 0x02 : 0x00);
+	snd_soc_component_write_field(comp, WCD9335_ANA_MBHC_MECH,
+				      WCD9335_MBHC_GND_DET_EN_MASK, enable);
+}
+
+static void wcd9335_mbhc_hph_pull_down_ctrl(struct snd_soc_component *comp,
+					    bool enable)
+{
+	snd_soc_component_update_bits(comp, WCD9335_HPH_PA_CTL2, 0x50,
+				      enable ? 0x50 : 0x00);
+}
+
+static const struct wcd_mbhc_cb wcd9335_mbhc_cb = {
+	.clk_setup = wcd9335_mbhc_clk_setup,
+	.mbhc_bias = wcd9335_mbhc_bias_control,
+	.set_btn_thr = wcd9335_mbhc_program_btn_thr,
+	.micbias_enable_status = wcd9335_mbhc_micb_en_status,
+	.hph_pull_up_control = wcd9335_mbhc_hph_l_pull_up_control,
+	.mbhc_micbias_control = wcd9335_mbhc_request_micbias,
+	.mbhc_gnd_det_ctrl = wcd9335_mbhc_gnd_det_ctrl,
+	.hph_pull_down_ctrl = wcd9335_mbhc_hph_pull_down_ctrl,
+};
+
+/* The board opts in with its button thresholds: not every jack is wired alike */
+static int wcd9335_mbhc_init(struct snd_soc_component *comp)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(comp->dev);
+	struct wcd_mbhc_intr *intr_ids = &wcd->intr_ids;
+	struct wcd_mbhc_config *cfg = &wcd->mbhc_cfg;
+	struct wcd_mbhc *mbhc;
+
+	if (!of_property_present(wcd->dev->of_node,
+				 "qcom,mbhc-buttons-vthreshold-microvolt"))
+		return 0;
+
+	cfg->mbhc_micbias = MIC_BIAS_2;
+	cfg->anc_micbias = MIC_BIAS_2;
+	cfg->v_hs_max = WCD9335_MBHC_HS_V_MAX;
+	cfg->num_btn = WCD_MBHC_DEF_BUTTONS;
+	cfg->gnd_det_en = true;
+	wcd_dt_parse_mbhc_data(wcd->dev, cfg);
+
+	intr_ids->mbhc_sw_intr = regmap_irq_get_virq(wcd->irq_data,
+						     WCD9335_IRQ_MBHC_SW_DET);
+	intr_ids->mbhc_btn_press_intr = regmap_irq_get_virq(wcd->irq_data,
+							    WCD9335_IRQ_MBHC_BUTTON_PRESS_DET);
+	intr_ids->mbhc_btn_release_intr = regmap_irq_get_virq(wcd->irq_data,
+							      WCD9335_IRQ_MBHC_BUTTON_RELEASE_DET);
+	intr_ids->mbhc_hs_ins_intr = regmap_irq_get_virq(wcd->irq_data,
+							 WCD9335_IRQ_MBHC_ELECT_INS_REM_LEG_DET);
+	intr_ids->mbhc_hs_rem_intr = regmap_irq_get_virq(wcd->irq_data,
+							 WCD9335_IRQ_MBHC_ELECT_INS_REM_DET);
+	intr_ids->hph_left_ocp = regmap_irq_get_virq(wcd->irq_data,
+						     WCD9335_IRQ_HPH_PA_OCPL_FAULT);
+	intr_ids->hph_right_ocp = regmap_irq_get_virq(wcd->irq_data,
+						      WCD9335_IRQ_HPH_PA_OCPR_FAULT);
+
+	mbhc = wcd_mbhc_init(comp, &wcd9335_mbhc_cb, intr_ids,
+			     wcd9335_mbhc_fields, false);
+	if (IS_ERR(mbhc))
+		return PTR_ERR(mbhc);
+
+	wcd->mbhc = mbhc;
+
+	return 0;
+}
+
 static int wcd9335_codec_probe(struct snd_soc_component *component)
 {
 	struct wcd9335_codec *wcd = dev_get_drvdata(component->dev);
@@ -4892,6 +5103,10 @@ static int wcd9335_codec_probe(struct snd_soc_component *component)
 	if (ret)
 		goto free_clsh_ctrl;
 
+	ret = wcd9335_mbhc_init(component);
+	if (ret)
+		dev_err(wcd->dev, "Failed to initialize MBHC: %d\n", ret);
+
 	return 0;
 
 free_clsh_ctrl:
@@ -4902,6 +5117,11 @@ free_clsh_ctrl:
 static void wcd9335_codec_remove(struct snd_soc_component *comp)
 {
 	struct wcd9335_codec *wcd = dev_get_drvdata(comp->dev);
+
+	if (wcd->mbhc) {
+		wcd_mbhc_deinit(wcd->mbhc);
+		wcd->mbhc = NULL;
+	}
 
 	wcd_clsh_ctrl_free(wcd->clsh_ctrl);
 	wcd9335_teardown_irqs(wcd);
@@ -4929,6 +5149,26 @@ static int wcd9335_codec_set_sysclk(struct snd_soc_component *comp,
 	return clk_set_rate(wcd->mclk, freq);
 }
 
+static int wcd9335_codec_set_jack(struct snd_soc_component *comp,
+				  struct snd_soc_jack *jack, void *data)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(comp->dev);
+	int ret = 0;
+
+	if (!wcd->mbhc)
+		return -ENOTSUPP;
+
+	if (jack && !wcd->mbhc_started) {
+		ret = wcd_mbhc_start(wcd->mbhc, &wcd->mbhc_cfg, jack);
+		wcd->mbhc_started = !ret;
+	} else if (!jack && wcd->mbhc_started) {
+		wcd_mbhc_stop(wcd->mbhc);
+		wcd->mbhc_started = false;
+	}
+
+	return ret;
+}
+
 static const struct snd_soc_component_driver wcd9335_component_drv = {
 	.probe = wcd9335_codec_probe,
 	.remove = wcd9335_codec_remove,
@@ -4939,6 +5179,7 @@ static const struct snd_soc_component_driver wcd9335_component_drv = {
 	.num_dapm_widgets = ARRAY_SIZE(wcd9335_dapm_widgets),
 	.dapm_routes = wcd9335_audio_map,
 	.num_dapm_routes = ARRAY_SIZE(wcd9335_audio_map),
+	.set_jack = wcd9335_codec_set_jack,
 	.endianness = 1,
 };
 
