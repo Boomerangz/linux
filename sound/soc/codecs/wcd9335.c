@@ -335,6 +335,7 @@ struct wcd9335_codec {
 	int comp_enabled[COMPANDER_MAX];
 
 	int intr1;
+	bool intr1_off;
 	struct gpio_desc *reset_gpio;
 
 	unsigned int rx_port_value[WCD9335_RX_MAX];
@@ -5259,6 +5260,39 @@ static int wcd9335_slim_probe(struct slim_device *slim)
 	return 0;
 }
 
+/*
+ * The interrupt line stays high until its status is cleared over SLIMbus, and
+ * interrupt threads run again before any driver has resumed. An event during
+ * sleep would then fail to read its status and fire again, until the kernel
+ * disables the interrupt. The controller is our parent, so it is back by the
+ * time resume runs here.
+ */
+static int wcd9335_suspend(struct device *dev)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(dev);
+
+	if (wcd && wcd->irq_data) {
+		disable_irq(wcd->intr1);
+		wcd->intr1_off = true;
+	}
+
+	return 0;
+}
+
+static int wcd9335_resume(struct device *dev)
+{
+	struct wcd9335_codec *wcd = dev_get_drvdata(dev);
+
+	if (wcd && wcd->intr1_off) {
+		wcd->intr1_off = false;
+		enable_irq(wcd->intr1);
+	}
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(wcd9335_pm_ops, wcd9335_suspend, wcd9335_resume);
+
 static int wcd9335_slim_status(struct slim_device *sdev,
 			       enum slim_device_status status)
 {
@@ -5329,6 +5363,7 @@ MODULE_DEVICE_TABLE(slim, wcd9335_slim_id);
 static struct slim_driver wcd9335_slim_driver = {
 	.driver = {
 		.name = "wcd9335-slim",
+		.pm = pm_sleep_ptr(&wcd9335_pm_ops),
 	},
 	.probe = wcd9335_slim_probe,
 	.device_status = wcd9335_slim_status,
