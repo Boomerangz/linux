@@ -73,6 +73,7 @@
  * switches at about 1.14 V, so a headset of up to about 3.8 kohm reads as one.
  */
 #define WCD9335_MBHC_HS_V_MAX 1700
+#define WCD9335_MICB2_DETECT_MV 1800
 #define WCD9335_MICB_ENABLE 1
 #define WCD9335_ANA_MICB_EN_MASK GENMASK(7, 6)
 #define WCD9335_MAX_VALID_ADC_MUX  13
@@ -353,6 +354,7 @@ struct wcd9335_codec {
 	struct wcd_mbhc_intr intr_ids;
 	bool mbhc_started;
 	bool mbhc_micb_held;
+	u32 micb2_mv;
 };
 
 struct wcd9335_irq {
@@ -2529,6 +2531,19 @@ static const struct snd_soc_dapm_route wcd9335_audio_map[] = {
 	{"ADC6", NULL, "AMIC6"},
 };
 
+/*
+ * Plug detection's thresholds are for 1.8 V, but a microphone can want more:
+ * Apple's EarPods put out a steady tone at 1.8 V, and work at 2.7 V. So a
+ * capture gets the board's voltage, unless detection is using the line.
+ */
+static void wcd9335_micb2_set_voltage(struct wcd9335_codec *wcd)
+{
+	u32 mv = wcd->mbhc_micb_held ? WCD9335_MICB2_DETECT_MV : wcd->micb2_mv;
+
+	snd_soc_component_update_bits(wcd->component, WCD9335_ANA_MICB2, 0x3f,
+				      (mv - 1000) / 50);
+}
+
 static int wcd9335_micbias_control(struct snd_soc_component *component,
 				   int micb_num, int req, bool is_dapm)
 {
@@ -2582,6 +2597,8 @@ static int wcd9335_micbias_control(struct snd_soc_component *component,
 	case MICB_ENABLE:
 		wcd->micb_ref[micb_index]++;
 		if (wcd->micb_ref[micb_index] == 1) {
+			if (micb_num == MIC_BIAS_2)
+				wcd9335_micb2_set_voltage(wcd);
 			snd_soc_component_update_bits(component, micb_reg,
 							0xC0, 0x40);
 			if (micb_num == MIC_BIAS_2)
@@ -4994,6 +5011,7 @@ static int wcd9335_mbhc_request_micbias(struct snd_soc_component *comp,
 			return ret;
 
 		wcd->mbhc_micb_held = true;
+		wcd9335_micb2_set_voltage(wcd);
 		return wcd9335_micbias_control(comp, micb_num, req, false);
 	case MICB_DISABLE:
 		if (!wcd->mbhc_micb_held)
@@ -5002,6 +5020,7 @@ static int wcd9335_mbhc_request_micbias(struct snd_soc_component *comp,
 		ret = wcd9335_micbias_control(comp, micb_num, req, false);
 		_wcd9335_codec_enable_mclk(comp, false);
 		wcd->mbhc_micb_held = false;
+		wcd9335_micb2_set_voltage(wcd);
 		return ret;
 	default:
 		return wcd9335_micbias_control(comp, micb_num, req, false);
@@ -5311,6 +5330,7 @@ static const struct regmap_irq_chip wcd9335_regmap_irq1_chip = {
 static int wcd9335_parse_dt(struct wcd9335_codec *wcd)
 {
 	struct device *dev = wcd->dev;
+	u32 uv;
 	int ret;
 
 	wcd->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
@@ -5329,6 +5349,10 @@ static int wcd9335_parse_dt(struct wcd9335_codec *wcd)
 					     wcd9335_supplies);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to get and enable supplies\n");
+
+	wcd->micb2_mv = WCD9335_MICB2_DETECT_MV;
+	if (!of_property_read_u32(dev->of_node, "qcom,micbias2-microvolt", &uv))
+		wcd->micb2_mv = uv / 1000;
 
 	return 0;
 }
