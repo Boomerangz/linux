@@ -1835,7 +1835,7 @@ void ath10k_htt_set_tx_ops(struct ath10k_htt *htt)
 
 	if (ar->bus_param.dev_type == ATH10K_DEV_TYPE_HL)
 		htt->tx_ops = &htt_tx_ops_hl;
-	else if (ar->hw_params.target_64bit)
+	else if ((ar->hw_params.target_64bit && !of_machine_is_compatible("sony,xperia-maple")))
 		htt->tx_ops = &htt_tx_ops_64;
 	else
 		htt->tx_ops = &htt_tx_ops_32;
