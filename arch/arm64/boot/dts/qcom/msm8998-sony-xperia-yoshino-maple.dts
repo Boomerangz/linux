@@ -13,6 +13,35 @@
 	compatible = "sony,xperia-maple", "qcom,msm8998";
 	chassis-type = "handset";
 
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* Framebuffer left running by the bootloader (cmd-mode, dual DSI 2x540x1920) */
+		framebuffer0: framebuffer@9d400000 {
+			compatible = "simple-framebuffer";
+			reg = <0x0 0x9d400000 0x0 (1080 * 1920 * 4)>;
+			width = <1080>;
+			height = <1920>;
+			stride = <(1080 * 4)>;
+			format = "a8r8g8b8";
+			clocks = <&mmcc MDSS_AHB_CLK>,
+				 <&mmcc MDSS_AXI_CLK>,
+				 <&mmcc MDSS_VSYNC_CLK>,
+				 <&mmcc MDSS_MDP_CLK>,
+				 <&mmcc MDSS_BYTE0_CLK>,
+				 <&mmcc MDSS_BYTE0_INTF_CLK>,
+				 <&mmcc MDSS_PCLK0_CLK>,
+				 <&mmcc MDSS_ESC0_CLK>,
+				 <&mmcc MDSS_BYTE1_CLK>,
+				 <&mmcc MDSS_BYTE1_INTF_CLK>,
+				 <&mmcc MDSS_PCLK1_CLK>,
+				 <&mmcc MDSS_ESC1_CLK>;
+			power-domains = <&mmcc MDSS_GDSC>;
+		};
+	};
+
 	disp_dvdd_vreg: disp-dvdd-vreg {
 		compatible = "regulator-fixed";
 		regulator-name = "disp_dvdd_en";
