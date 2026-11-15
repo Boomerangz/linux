@@ -284,3 +284,12 @@
 		mode-recovery = <0x77665502>;
 	};
 };
+
+/*
+ * Sony XBoot uses its own PMIC restart reason numbering (downstream
+ * enum pon_restart_reason: recovery = 2, bootloader = 3).
+ */
+&pm8998_pon {
+	mode-bootloader = <0x3>;
+	mode-recovery = <0x2>;
+};
