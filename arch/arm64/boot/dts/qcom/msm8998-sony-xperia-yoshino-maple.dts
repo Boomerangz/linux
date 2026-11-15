@@ -323,3 +323,8 @@
 	regulator-allow-set-load;
 	regulator-system-load = <450000>;
 };
+
+/* Test: drive the WCN3990 reference clock unconditionally instead of pin-controlled */
+&wifi {
+	clocks = <&rpmcc RPM_SMD_RF_CLK2>;
+};
