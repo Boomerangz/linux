@@ -335,12 +335,3 @@
 &vreg_l5a_0p8 {
 	regulator-always-on;
 };
-
-/*
- * WLAN.HL.1.0.c4 firmware: the downstream driver never sends the host
- * capability request; the firmware then loads bdwlan.bin by itself.
- */
-&wifi {
-	/delete-property/ qcom,snoc-host-cap-8bit-quirk;
-	qcom,snoc-host-cap-skip-quirk;
-};
