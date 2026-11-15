@@ -556,7 +556,8 @@ static int qcom_smmu_def_domain_type(struct device *dev)
 	 * CE interrupts, HTC control response never arrives), so give it a
 	 * translated domain even when the default is passthrough.
 	 */
-	if (of_device_is_compatible(dev->of_node, "qcom,wcn3990-wifi"))
+	if (of_device_is_compatible(dev->of_node, "qcom,wcn3990-wifi") &&
+	    !of_machine_is_compatible("sony,xperia-maple"))
 		return IOMMU_DOMAIN_DMA;
 
 	return match ? IOMMU_DOMAIN_IDENTITY : 0;

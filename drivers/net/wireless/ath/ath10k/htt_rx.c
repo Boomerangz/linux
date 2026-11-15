@@ -9,7 +9,6 @@
 
 #include <linux/export.h>
 
-#include <linux/of.h>
 #include "core.h"
 #include "htc.h"
 #include "htt.h"
@@ -3305,7 +3304,7 @@ static int ath10k_htt_rx_in_ord_ind(struct ath10k *ar, struct sk_buff *skb)
 	 * extracted and processed.
 	 */
 	__skb_queue_head_init(&list);
-	if ((ar->hw_params.target_64bit && !of_machine_is_compatible("sony,xperia-maple")))
+	if (ar->hw_params.target_64bit)
 		ret = ath10k_htt_rx_pop_paddr64_list(htt, &resp->rx_in_ord_ind,
 						     &list);
 	else
@@ -4469,7 +4468,7 @@ void ath10k_htt_set_rx_ops(struct ath10k_htt *htt)
 
 	if (ar->bus_param.dev_type == ATH10K_DEV_TYPE_HL)
 		htt->rx_ops = &htt_rx_ops_hl;
-	else if ((ar->hw_params.target_64bit && !of_machine_is_compatible("sony,xperia-maple")))
+	else if (ar->hw_params.target_64bit)
 		htt->rx_ops = &htt_rx_ops_64;
 	else
 		htt->rx_ops = &htt_rx_ops_32;
