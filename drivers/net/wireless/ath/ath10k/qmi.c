@@ -921,7 +921,7 @@ static void ath10k_qmi_event_msa_ready(struct ath10k_qmi *qmi)
 		goto out;
 
 	/* The firmware loads bdwlan.bin over TFTP itself, as with icnss */
-	if (of_machine_is_compatible("sony,xperia-maple"))
+	if (0 && of_machine_is_compatible("sony,xperia-maple"))
 		goto out;
 
 	ret = ath10k_qmi_bdf_dnld_send_sync(qmi);
