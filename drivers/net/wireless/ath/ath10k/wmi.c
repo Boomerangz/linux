@@ -7,6 +7,7 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <linux/of.h>
 #include <linux/skbuff.h>
 #include <linux/ctype.h>
 
@@ -7096,7 +7097,13 @@ void ath10k_wmi_start_scan_init(struct ath10k *ar,
 		| WMI_SCAN_EVENT_FOREIGN_CHANNEL
 		| WMI_SCAN_EVENT_FOREIGN_CHANNEL_EXIT
 		| WMI_SCAN_EVENT_DEQUEUED;
-	arg->scan_ctrl_flags |= WMI_SCAN_CHAN_STAT_EVENT;
+	/*
+	 * WLAN.HL.1.0.c4 (Sony yoshino) crashes in its channel statistics
+	 * path on the first foreign channel event (NULL current channel), so
+	 * do not ask for per-channel statistics there.
+	 */
+	if (!of_machine_is_compatible("sony,xperia-maple"))
+		arg->scan_ctrl_flags |= WMI_SCAN_CHAN_STAT_EVENT;
 	arg->n_bssids = 1;
 	arg->bssids[0].bssid = "\xFF\xFF\xFF\xFF\xFF\xFF";
 }
