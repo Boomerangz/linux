@@ -6,6 +6,7 @@
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
+#include <linux/of.h>
 #include <linux/export.h>
 #include <linux/etherdevice.h>
 #include "htt.h"
