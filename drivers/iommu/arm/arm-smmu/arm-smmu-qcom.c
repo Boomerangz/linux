@@ -458,7 +458,16 @@ static int qcom_smmu_cfg_probe(struct arm_smmu_device *smmu)
 	      FIELD_PREP(ARM_SMMU_S2CR_PRIVCFG, S2CR_PRIVCFG_DEFAULT);
 	arm_smmu_gr0_write(smmu, last_s2cr, reg);
 	reg = arm_smmu_gr0_read(smmu, last_s2cr);
-	if (FIELD_GET(ARM_SMMU_S2CR_TYPE, reg) != S2CR_TYPE_BYPASS) {
+	/*
+	 * Sony yoshino: BYPASS reads back fine on the ANOC2 SMMU but streams
+	 * left in bypass do not pass traffic (WCN3990 copy engine stays
+	 * silent), so emulate bypass with a context bank there as well.
+	 */
+	if (FIELD_GET(ARM_SMMU_S2CR_TYPE, reg) != S2CR_TYPE_BYPASS ||
+	    (of_machine_is_compatible("sony,xperia-maple") &&
+	     smmu->num_mapping_groups == 14 && smmu->num_context_banks == 10)) {
+		dev_info(smmu->dev, "\temulating bypass with context bank %d\n",
+			 smmu->num_context_banks - 1);
 		qsmmu->bypass_quirk = true;
 		qsmmu->bypass_cbndx = smmu->num_context_banks - 1;
 
@@ -547,7 +556,8 @@ static int qcom_smmu_def_domain_type(struct device *dev)
 	 * CE interrupts, HTC control response never arrives), so give it a
 	 * translated domain even when the default is passthrough.
 	 */
-	if (of_device_is_compatible(dev->of_node, "qcom,wcn3990-wifi"))
+	if (of_device_is_compatible(dev->of_node, "qcom,wcn3990-wifi") &&
+	    !of_machine_is_compatible("sony,xperia-maple"))
 		return IOMMU_DOMAIN_DMA;
 
 	return match ? IOMMU_DOMAIN_IDENTITY : 0;

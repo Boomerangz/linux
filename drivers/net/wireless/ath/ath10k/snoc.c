@@ -1733,7 +1733,7 @@ static int ath10k_snoc_probe(struct platform_device *pdev)
 	 * downstream driver used (smmu_iova_base 0xa0000000, 256 MiB). Keep
 	 * IOMMU allocations below its end.
 	 */
-	if (of_machine_is_compatible("qcom,msm8998"))
+	if (0 && of_machine_is_compatible("qcom,msm8998"))
 		dev->bus_dma_limit = 0xafffffffULL;
 
 	ar = ath10k_core_create(sizeof(*ar_snoc), dev, ATH10K_BUS_SNOC,
