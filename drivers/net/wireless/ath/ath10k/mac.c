@@ -5553,22 +5553,6 @@ static void ath10k_update_vif_offload(struct ieee80211_hw *hw,
  * for P2P_FIND/GO_NEG should be handled by checking CCK flag
  * in the TX packet.
  */
-/*
- * Old WCN3990 firmware (WLAN.HL.1.0.c4 on Sony yoshino) dereferences the
- * vdev self peer when a scan starts; the downstream driver always creates
- * one for station vdevs as well.
- */
-static bool ath10k_vif_has_self_peer(struct ath10k_vif *arvif)
-{
-	if (arvif->vdev_type == WMI_VDEV_TYPE_AP ||
-	    arvif->vdev_type == WMI_VDEV_TYPE_IBSS)
-		return true;
-
-	return arvif->vdev_type == WMI_VDEV_TYPE_STA &&
-	       arvif->vdev_subtype == WMI_VDEV_SUBTYPE_NONE &&
-	       of_machine_is_compatible("sony,xperia-maple");
-}
-
 static int ath10k_add_interface(struct ieee80211_hw *hw,
 				struct ieee80211_vif *vif)
 {
@@ -5790,7 +5774,8 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 		}
 	}
 
-	if (ath10k_vif_has_self_peer(arvif)) {
+	if (arvif->vdev_type == WMI_VDEV_TYPE_AP ||
+	    arvif->vdev_type == WMI_VDEV_TYPE_IBSS) {
 		ret = ath10k_peer_create(ar, vif, NULL, arvif->vdev_id,
 					 vif->addr, WMI_PEER_TYPE_DEFAULT);
 		if (ret) {
@@ -5903,7 +5888,8 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 	return 0;
 
 err_peer_delete:
-	if (ath10k_vif_has_self_peer(arvif)) {
+	if (arvif->vdev_type == WMI_VDEV_TYPE_AP ||
+	    arvif->vdev_type == WMI_VDEV_TYPE_IBSS) {
 		ath10k_wmi_peer_delete(ar, arvif->vdev_id, vif->addr);
 		ath10k_wait_for_peer_delete_done(ar, arvif->vdev_id,
 						 vif->addr);
@@ -5964,7 +5950,8 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 	list_del(&arvif->list);
 	spin_unlock_bh(&ar->data_lock);
 
-	if (ath10k_vif_has_self_peer(arvif)) {
+	if (arvif->vdev_type == WMI_VDEV_TYPE_AP ||
+	    arvif->vdev_type == WMI_VDEV_TYPE_IBSS) {
 		ret = ath10k_wmi_peer_delete(arvif->ar, arvif->vdev_id,
 					     vif->addr);
 		if (ret)
@@ -5973,8 +5960,7 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 
 		ath10k_wait_for_peer_delete_done(ar, arvif->vdev_id,
 						 vif->addr);
-		if (arvif->vdev_type == WMI_VDEV_TYPE_AP)
-			kfree(arvif->u.ap.noa_data);
+		kfree(arvif->u.ap.noa_data);
 	}
 
 	ath10k_dbg(ar, ATH10K_DBG_MAC, "mac vdev %i delete (remove interface)\n",
@@ -5994,7 +5980,8 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 	/* Some firmware revisions don't notify host about self-peer removal
 	 * until after associated vdev is deleted.
 	 */
-	if (ath10k_vif_has_self_peer(arvif)) {
+	if (arvif->vdev_type == WMI_VDEV_TYPE_AP ||
+	    arvif->vdev_type == WMI_VDEV_TYPE_IBSS) {
 		ret = ath10k_wait_for_peer_deleted(ar, arvif->vdev_id,
 						   vif->addr);
 		if (ret)
