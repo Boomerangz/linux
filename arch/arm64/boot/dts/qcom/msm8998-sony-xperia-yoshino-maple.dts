@@ -544,6 +544,18 @@
 
 /* Earpiece amplifier enable */
 &pm8005_gpios {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ear_en_default>;
+
+	/* 1.8 V push-pull, as the vendor kernel configures it */
+	ear_en_default: ear-en-default-state {
+		pins = "gpio1";
+		function = "normal";
+		power-source = <1>;
+		bias-disable;
+		output-high;
+	};
+
 	ear-en-hog {
 		gpio-hog;
 		gpios = <1 GPIO_ACTIVE_HIGH>;
