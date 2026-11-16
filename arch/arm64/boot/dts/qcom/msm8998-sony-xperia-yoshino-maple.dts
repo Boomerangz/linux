@@ -502,6 +502,7 @@
 			 * limits 75/137/237/500 mV from msm8998.c.
 			 */
 			qcom,ground-jack-type-normally-closed;
+			qcom,mbhc-no-ground-detect;
 			qcom,mbhc-buttons-vthreshold-microvolt = <75000 137000 237000 500000
 								  500000 500000 500000 500000>;
 
