@@ -14,13 +14,15 @@
 #include <linux/platform_device.h>
 #include <linux/remoteproc/qcom_rproc.h>
 #include <linux/soc/qcom/qmi.h>
-#include <linux/soc/qcom/qrtr.h>
 #include <linux/types.h>
 #include <net/sock.h>
 
 #include "qmi/qmi_sns_smgr.h"
 
-MODULE_IMPORT_NS("QRTR");
+struct qcom_smgr_pdata {
+	unsigned int node;
+	unsigned int port;
+};
 
 #define SMGR_TICKS_PER_SECOND		32768
 #define SMGR_REPORT_RATE_HZ		(SMGR_TICKS_PER_SECOND * 2)
@@ -733,23 +735,27 @@ static int qcom_smgr_register_sensor(struct qcom_smgr *smgr,
 	return 0;
 }
 
-static int qcom_smgr_probe(struct qrtr_device *qdev)
+static int qcom_smgr_probe(struct platform_device *pdev)
 {
+	const struct qcom_smgr_pdata *pdata = dev_get_platdata(&pdev->dev);
 	struct qcom_smgr *smgr;
 	int i, j;
 	int ret;
 
-	smgr = devm_kzalloc(&qdev->dev, sizeof(*smgr), GFP_KERNEL);
+	if (!pdata)
+		return -EINVAL;
+
+	smgr = devm_kzalloc(&pdev->dev, sizeof(*smgr), GFP_KERNEL);
 	if (!smgr)
 		return -ENOMEM;
 
-	smgr->dev = &qdev->dev;
+	smgr->dev = &pdev->dev;
 
 	smgr->sns_smgr_info.sq_family = AF_QIPCRTR;
-	smgr->sns_smgr_info.sq_node = qdev->node;
-	smgr->sns_smgr_info.sq_port = qdev->port;
+	smgr->sns_smgr_info.sq_node = pdata->node;
+	smgr->sns_smgr_info.sq_port = pdata->port;
 
-	dev_set_drvdata(&qdev->dev, smgr);
+	dev_set_drvdata(&pdev->dev, smgr);
 
 	ret = qmi_handle_init(&smgr->sns_smgr_hdl,
 			      SNS_SMGR_SINGLE_SENSOR_INFO_RESP_MAX_LEN, NULL,
@@ -806,34 +812,83 @@ static int qcom_smgr_probe(struct qrtr_device *qdev)
 	return 0;
 }
 
-static const struct qrtr_device_id qcom_smgr_qrtr_match[] = {
-	{
-		.service = SNS_SMGR_QMI_SVC_ID,
-		/* Found on MSM8953 */
-		.instance = QRTR_INSTANCE_CONST(0, 1)
-	},
-	{
-		.service = SNS_SMGR_QMI_SVC_ID,
-		/* Found on MSM8974 and MSM8226 */
-		.instance = QRTR_INSTANCE_CONST(1, 0)
-	},
-	{
-		.service = SNS_SMGR_QMI_SVC_ID,
-		/* Found on MSM8996 and SDM660 */
-		.instance = QRTR_INSTANCE_CONST(1, 50)
-	},
-	{ },
-};
-MODULE_DEVICE_TABLE(qrtr, qcom_smgr_qrtr_match);
-
-static struct qrtr_driver qcom_smgr_driver = {
+static struct platform_driver qcom_smgr_driver = {
 	.probe = qcom_smgr_probe,
-	.id_table = qcom_smgr_qrtr_match,
 	.driver	= {
 		.name = "qcom_smgr",
 	},
 };
-module_qrtr_driver(qcom_smgr_driver);
+
+/*
+ * The Sensor Manager service is published by the SSC/ADSP only after the AP
+ * has served the sensor registry. Watch for it with a QMI lookup (any version
+ * and instance) and create one platform device per published service.
+ */
+static struct qmi_handle qcom_smgr_lookup;
+
+static int qcom_smgr_new_server(struct qmi_handle *qmi, struct qmi_service *svc)
+{
+	struct qcom_smgr_pdata pdata = { .node = svc->node, .port = svc->port };
+	struct platform_device *pdev;
+
+	pr_info("qcom_smgr: Sensor Manager service v%u.%u at %u:%u\n",
+		svc->version, svc->instance, svc->node, svc->port);
+
+	pdev = platform_device_register_data(NULL, "qcom_smgr", PLATFORM_DEVID_AUTO,
+					     &pdata, sizeof(pdata));
+	if (IS_ERR(pdev))
+		return PTR_ERR(pdev);
+
+	svc->priv = pdev;
+	return 0;
+}
+
+static void qcom_smgr_del_server(struct qmi_handle *qmi, struct qmi_service *svc)
+{
+	struct platform_device *pdev = svc->priv;
+
+	if (pdev)
+		platform_device_unregister(pdev);
+	svc->priv = NULL;
+}
+
+static const struct qmi_ops qcom_smgr_lookup_ops = {
+	.new_server = qcom_smgr_new_server,
+	.del_server = qcom_smgr_del_server,
+};
+
+static int __init qcom_smgr_init(void)
+{
+	int ret;
+
+	ret = platform_driver_register(&qcom_smgr_driver);
+	if (ret)
+		return ret;
+
+	ret = qmi_handle_init(&qcom_smgr_lookup, 0, &qcom_smgr_lookup_ops, NULL);
+	if (ret < 0)
+		goto err_driver;
+
+	ret = qmi_add_lookup(&qcom_smgr_lookup, SNS_SMGR_QMI_SVC_ID, 0, 0);
+	if (ret < 0)
+		goto err_qmi;
+
+	return 0;
+
+err_qmi:
+	qmi_handle_release(&qcom_smgr_lookup);
+err_driver:
+	platform_driver_unregister(&qcom_smgr_driver);
+	return ret;
+}
+late_initcall(qcom_smgr_init);
+
+static void __exit qcom_smgr_exit(void)
+{
+	qmi_handle_release(&qcom_smgr_lookup);
+	platform_driver_unregister(&qcom_smgr_driver);
+}
+module_exit(qcom_smgr_exit);
 
 MODULE_AUTHOR("Yassine Oudjana <y.oudjana@protonmail.com>");
 MODULE_DESCRIPTION("Qualcomm Sensor Manager driver");
