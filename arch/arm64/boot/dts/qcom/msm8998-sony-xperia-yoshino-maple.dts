@@ -7,6 +7,7 @@
 /dts-v1/;
 
 #include "msm8998-sony-xperia-yoshino.dtsi"
+#include <dt-bindings/sound/qcom,wcd9335.h>
 
 / {
 	model = "Sony Xperia XZ Premium";
@@ -35,6 +36,46 @@
 	regulator-min-microvolt = <5800000>;
 	regulator-max-microvolt = <5800000>;
 	qcom,soft-start-us = <200>;
+};
+
+&mdss_dsi0 {
+	qcom,dual-dsi-mode;
+	qcom,master-dsi;
+};
+
+&mdss_dsi1 {
+	vdd-supply = <&vreg_l1a_0p875>;
+	vdda-supply = <&vreg_l2a_1p2>;
+	assigned-clock-parents = <&mdss_dsi0_phy 0>,
+				 <&mdss_dsi0_phy 1>;
+	qcom,dual-dsi-mode;
+	status = "okay";
+};
+
+&mdss_dsi1_out {
+	remote-endpoint = <&panel_in_1>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi1_phy {
+	vdds-supply = <&vreg_l1a_0p875>;
+	status = "okay";
+};
+
+&panel {
+	compatible = "sharp,ls055d1sx04", "novatek,nt35950";
+
+	dvdd-supply = <&disp_dvdd_vreg>;
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			panel_in_1: endpoint {
+				remote-endpoint = <&mdss_dsi1_out>;
+			};
+		};
+	};
 };
 
 &pm8005_gpios {
@@ -227,4 +268,240 @@
 &vreg_l22a_2p85 {
 	regulator-min-microvolt = <2704000>;
 	regulator-max-microvolt = <2704000>;
+};
+
+&remoteproc_mss {
+	firmware-name = "qcom/msm8998/sony/maple/mba.mbn",
+			"qcom/msm8998/sony/maple/modem.mdt";
+	status = "okay";
+};
+
+&wifi {
+	vdd-0.8-cx-mx-supply = <&vreg_l5a_0p8>;
+	vdd-1.8-xo-supply = <&vreg_l7a_1p8>;
+	vdd-1.3-rfa-supply = <&vreg_l17a_1p3>;
+	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
+	status = "okay";
+};
+
+/* Sony XBoot reads the restart reason from IMEM (like downstream "restart_reason@65c") */
+&{/soc@0/imem@146bf000} {
+	compatible = "syscon", "simple-mfd";
+
+	reboot-mode {
+		compatible = "syscon-reboot-mode";
+		offset = <0x65c>;
+		mode-normal = <0x77665501>;
+		mode-bootloader = <0x77665500>;
+		mode-recovery = <0x77665502>;
+	};
+};
+
+/*
+ * Sony XBoot uses its own PMIC restart reason numbering (downstream
+ * enum pon_restart_reason: recovery = 2, bootloader = 3).
+ */
+&pm8998_pon {
+	mode-bootloader = <0x3>;
+	mode-recovery = <0x2>;
+};
+
+&adreno_gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&zap_shader_region>;
+		firmware-name = "qcom/msm8998/sony/maple/a540_zap.mdt";
+	};
+};
+
+/ {
+	battery: battery {
+		compatible = "simple-battery";
+		device-chemistry = "lithium-ion-polymer";
+		charge-full-design-microamp-hours = <3230000>;
+		voltage-min-design-microvolt = <3400000>;
+		voltage-max-design-microvolt = <4400000>;
+	};
+};
+
+&pmi8998_charger {
+	monitored-battery = <&battery>;
+	status = "okay";
+};
+
+&pmi8998_rradc {
+	status = "okay";
+};
+
+&pmi8998_flash {
+	status = "okay";
+
+	led-0 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <1>;
+		led-max-microamp = <500000>;
+		flash-max-microamp = <1000000>;
+		flash-max-timeout-us = <1280000>;
+	};
+};
+
+&pmi8998_fg {
+	monitored-battery = <&battery>;
+	power-supplies = <&pmi8998_charger>;
+	status = "okay";
+};
+
+&remoteproc_adsp {
+	firmware-name = "qcom/msm8998/sony/maple/adsp.mdt";
+	status = "okay";
+};
+
+&remoteproc_slpi {
+	firmware-name = "qcom/msm8998/sony/maple/slpi_v2.mdt";
+	px-supply = <&vreg_lvs2a_1p8>;
+	status = "okay";
+};
+
+/ {
+	sound {
+		compatible = "qcom,apq8096-sndcard";
+		model = "Xperia-XZ-Premium";
+		widgets = "Microphone", "Digital Mic0",
+			  "Microphone", "Digital Mic1",
+			  "Microphone", "Digital Mic2",
+			  "Microphone", "Digital Mic3",
+			  "Microphone", "Headset Mic";
+		audio-routing = "RX_BIAS", "MCLK",
+				"DMIC0", "Digital Mic0",
+				"DMIC1", "Digital Mic1",
+				"DMIC2", "Digital Mic2",
+				"DMIC3", "Digital Mic3",
+				"AMIC2", "Headset Mic",
+				"DMIC0", "MIC BIAS1",
+				"DMIC1", "MIC BIAS1",
+				"DMIC2", "MIC BIAS3",
+				"DMIC3", "MIC BIAS4",
+				"AMIC2", "MIC BIAS2";
+
+		mm1-dai-link {
+			link-name = "MultiMedia1";
+
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+			};
+		};
+
+		mm2-dai-link {
+			link-name = "MultiMedia2";
+
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+			};
+		};
+
+		slim-dai-link {
+			link-name = "SLIM Playback";
+
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_6_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9335 AIF4_PB>;
+			};
+		};
+
+		slimcap-dai-link {
+			link-name = "SLIM Capture";
+
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9335 AIF1_CAP>;
+			};
+		};
+	};
+};
+
+&slim_msm {
+	status = "okay";
+
+	slim@1 {
+		reg = <1>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		tasha_ifd: tas-ifd@0,0 {
+			compatible = "slim217,1a0";
+			reg = <0 0>;
+		};
+
+		wcd9335: codec@1,0 {
+			compatible = "slim217,1a0";
+			reg = <1 0>;
+
+			clock-names = "mclk", "slimbus";
+			clocks = <&div1_mclk>,
+				 <&rpmcc RPM_SMD_LN_BB_CLK1>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <54 IRQ_TYPE_LEVEL_HIGH>,
+				     <53 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "intr1", "intr2";
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			reset-gpios = <&tlmm 64 GPIO_ACTIVE_LOW>;
+			slim-ifc-dev = <&tasha_ifd>;
+
+			#sound-dai-cells = <1>;
+
+			vdd-buck-supply = <&vreg_s4a_1p8>;
+			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
+			vdd-tx-supply = <&vreg_s4a_1p8>;
+			vdd-rx-supply = <&vreg_s4a_1p8>;
+			vdd-io-supply = <&vreg_s4a_1p8>;
+		};
+	};
+};
+
+&blsp2_i2c1 {
+	status = "okay";
+
+	nfc@28 {
+		compatible = "nxp,nxp-nci-i2c";
+		reg = <0x28>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <92 IRQ_TYPE_EDGE_RISING>;
+
+		enable-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
+		firmware-gpios = <&tlmm 93 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Needed by the ADSP to reach the shared audio buffers */
+&lpass_q6_smmu {
+	status = "okay";
+};
+
+/* Earpiece amplifier enable */
+&pm8005_gpios {
+	ear-en-hog {
+		gpio-hog;
+		gpios = <1 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "EAR_EN";
+	};
 };
