@@ -5560,6 +5560,15 @@ static void ath10k_wmi_event_service_ready_work(struct work_struct *work)
 	ar->hw_max_tx_power = __le32_to_cpu(arg.max_tx_power);
 	ar->ht_cap_info = __le32_to_cpu(arg.ht_cap);
 	ar->vht_cap_info = __le32_to_cpu(arg.vht_cap);
+	/*
+	 * WLAN.HL.1.0.c4 (Sony yoshino) crashes in wlan_txbf.c when TX
+	 * beamforming is configured for a peer; do not advertise it.
+	 */
+	if (of_machine_is_compatible("sony,xperia-maple"))
+		ar->vht_cap_info &= ~(IEEE80211_VHT_CAP_SU_BEAMFORMER_CAPABLE |
+				      IEEE80211_VHT_CAP_SU_BEAMFORMEE_CAPABLE |
+				      IEEE80211_VHT_CAP_MU_BEAMFORMER_CAPABLE |
+				      IEEE80211_VHT_CAP_MU_BEAMFORMEE_CAPABLE);
 	ar->vht_supp_mcs = __le32_to_cpu(arg.vht_supp_mcs);
 	ar->fw_version_major =
 		(__le32_to_cpu(arg.sw_ver0) & 0xff000000) >> 24;
