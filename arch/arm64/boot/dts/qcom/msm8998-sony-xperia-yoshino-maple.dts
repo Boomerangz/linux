@@ -368,15 +368,22 @@
 	sound {
 		compatible = "qcom,apq8096-sndcard";
 		model = "Xperia-XZ-Premium";
+		widgets = "Microphone", "Digital Mic0",
+			  "Microphone", "Digital Mic1",
+			  "Microphone", "Digital Mic2",
+			  "Microphone", "Digital Mic3",
+			  "Microphone", "Headset Mic";
 		audio-routing = "RX_BIAS", "MCLK",
-				"AMIC2", "MIC BIAS2",
-				"AMIC3", "MIC BIAS3",
+				"MIC BIAS1", "Digital Mic0",
+				"MIC BIAS1", "Digital Mic1",
+				"MIC BIAS3", "Digital Mic2",
+				"MIC BIAS4", "Digital Mic3",
+				"MIC BIAS2", "Headset Mic",
 				"DMIC0", "MIC BIAS1",
 				"DMIC1", "MIC BIAS1",
 				"DMIC2", "MIC BIAS3",
 				"DMIC3", "MIC BIAS4",
-				"DMIC4", "MIC BIAS4",
-				"DMIC5", "MIC BIAS4";
+				"AMIC2", "MIC BIAS2";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
