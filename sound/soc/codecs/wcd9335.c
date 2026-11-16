@@ -11,6 +11,8 @@
 #include <linux/bitops.h>
 #include <linux/regulator/consumer.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
+#include <linux/of_platform.h>
 #include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/slimbus.h>
@@ -298,6 +300,7 @@ struct wcd_slim_codec_dai_data {
 struct wcd9335_codec {
 	struct device *dev;
 	struct clk *mclk;
+	struct clk_hw swclk_hw;
 	struct clk *native_clk;
 	u32 mclk_rate;
 
@@ -2424,6 +2427,14 @@ static const struct snd_soc_dapm_route wcd9335_audio_map[] = {
 	WCD9335_INTERPOLATOR_PATH(7),
 	WCD9335_INTERPOLATOR_PATH(8),
 
+	/* SoundWire speaker amplifiers */
+	{"RX INT7 CHAIN", NULL, "RX INT7 INTERP"},
+	{"RX INT7 CHAIN", NULL, "RX_BIAS"},
+	{"SPK1 OUT", NULL, "RX INT7 CHAIN"},
+	{"RX INT8 CHAIN", NULL, "RX INT8 INTERP"},
+	{"RX INT8 CHAIN", NULL, "RX_BIAS"},
+	{"SPK2 OUT", NULL, "RX INT8 CHAIN"},
+
 	/* EAR PA */
 	{"RX INT0 DEM MUX", "CLSH_DSM_OUT", "RX INT0 INTERP"},
 	{"RX INT0 DAC", NULL, "RX INT0 DEM MUX"},
@@ -4267,8 +4278,50 @@ static int wcd9335_codec_enable_mclk(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static int wcd9335_codec_spk_boost_event(struct snd_soc_dapm_widget *w,
+					 struct snd_kcontrol *kc, int event)
+{
+	struct snd_soc_component *comp = snd_soc_dapm_to_component(w->dapm);
+	u16 boost_path_ctl, boost_path_cfg1, reg, reg_mix;
+
+	if (!strcmp(w->name, "RX INT7 CHAIN")) {
+		boost_path_ctl = WCD9335_CDC_BOOST0_BOOST_PATH_CTL;
+		boost_path_cfg1 = WCD9335_CDC_RX7_RX_PATH_CFG1;
+		reg = WCD9335_CDC_RX7_RX_PATH_CTL;
+		reg_mix = WCD9335_CDC_RX7_RX_PATH_MIX_CTL;
+	} else {
+		boost_path_ctl = WCD9335_CDC_BOOST1_BOOST_PATH_CTL;
+		boost_path_cfg1 = WCD9335_CDC_RX8_RX_PATH_CFG1;
+		reg = WCD9335_CDC_RX8_RX_PATH_CTL;
+		reg_mix = WCD9335_CDC_RX8_RX_PATH_MIX_CTL;
+	}
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		snd_soc_component_update_bits(comp, boost_path_ctl, 0x10, 0x10);
+		snd_soc_component_update_bits(comp, boost_path_cfg1, 0x01, 0x01);
+		/* unmute the primary and mix paths */
+		snd_soc_component_update_bits(comp, reg, 0x10, 0x00);
+		snd_soc_component_update_bits(comp, reg_mix, 0x10, 0x00);
+		break;
+	case SND_SOC_DAPM_POST_PMD:
+		snd_soc_component_update_bits(comp, boost_path_cfg1, 0x01, 0x00);
+		snd_soc_component_update_bits(comp, boost_path_ctl, 0x10, 0x00);
+		break;
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_dapm_widget wcd9335_dapm_widgets[] = {
-	/* TODO SPK1 & SPK2 OUT*/
+	SND_SOC_DAPM_OUTPUT("SPK1 OUT"),
+	SND_SOC_DAPM_OUTPUT("SPK2 OUT"),
+	SND_SOC_DAPM_MIXER_E("RX INT7 CHAIN", SND_SOC_NOPM, 0, 0, NULL, 0,
+			     wcd9335_codec_spk_boost_event,
+			     SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_MIXER_E("RX INT8 CHAIN", SND_SOC_NOPM, 0, 0, NULL, 0,
+			     wcd9335_codec_spk_boost_event,
+			     SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 	SND_SOC_DAPM_OUTPUT("EAR"),
 	SND_SOC_DAPM_OUTPUT("HPHL"),
 	SND_SOC_DAPM_OUTPUT("HPHR"),
@@ -4891,6 +4944,8 @@ static bool wcd9335_is_volatile_register(struct device *dev, unsigned int reg)
 {
 	switch (reg) {
 	case WCD9335_INTR_PIN1_STATUS0...WCD9335_INTR_PIN2_CLEAR3:
+	case WCD9335_SWR_AHB_BRIDGE_RD_DATA_0...WCD9335_SWR_AHB_BRIDGE_RD_DATA_3:
+	case WCD9335_SWR_AHB_BRIDGE_ACCESS_STATUS:
 	case WCD9335_ANA_MBHC_RESULT_3:
 	case WCD9335_ANA_MBHC_RESULT_2:
 	case WCD9335_ANA_MBHC_RESULT_1:
@@ -4949,6 +5004,11 @@ static const struct regmap_irq wcd9335_codec_irqs[] = {
 			.types_supported = IRQ_TYPE_EDGE_BOTH,
 			.type_reg_mask	= BIT(0),
 		},
+	},
+	/* INTR_REG 2 */
+	[WCD9335_IRQ_SOUNDWIRE] = {
+		.reg_offset = 2,
+		.mask = BIT(4),
 	},
 };
 
@@ -5068,6 +5128,77 @@ static int wcd9335_irq_init(struct wcd9335_codec *wcd)
 	return 0;
 }
 
+/*
+ * Clock for the SoundWire master inside the codec (WSA881x speaker
+ * amplifiers hang off it). It needs the codec MCLK and master bias.
+ */
+static int wcd9335_swclk_prepare(struct clk_hw *hw)
+{
+	struct wcd9335_codec *wcd = container_of(hw, struct wcd9335_codec, swclk_hw);
+	int ret;
+
+	ret = clk_prepare_enable(wcd->mclk);
+	if (ret)
+		return ret;
+
+	/*
+	 * The SoundWire master probes before the ASoC component, so open the
+	 * codec MCLK gate here as well.
+	 */
+	regmap_update_bits(wcd->regmap, WCD9335_CODEC_RPM_CLK_GATE,
+			   WCD9335_CODEC_RPM_CLK_GATE_MCLK_GATE_MASK, 0);
+	wcd9335_enable_master_bias(wcd);
+	wcd9335_enable_mclk(wcd);
+	/* v2.0 codecs: take the SoundWire NPL clock out of delay test mode */
+	regmap_update_bits(wcd->regmap, WCD9335_REG(0x80, 0x3b), 0x10, 0x00);
+	regmap_update_bits(wcd->regmap, WCD9335_CDC_CLK_RST_CTRL_SWR_CONTROL,
+			   WCD9335_CDC_SWR_CLK_EN_MASK, WCD9335_CDC_SWR_CLK_EN_MASK);
+	return 0;
+}
+
+static void wcd9335_swclk_unprepare(struct clk_hw *hw)
+{
+	struct wcd9335_codec *wcd = container_of(hw, struct wcd9335_codec, swclk_hw);
+
+	regmap_update_bits(wcd->regmap, WCD9335_CDC_CLK_RST_CTRL_SWR_CONTROL,
+			   WCD9335_CDC_SWR_CLK_EN_MASK, 0);
+	wcd9335_disable_mclk(wcd);
+	wcd9335_disable_master_bias(wcd);
+	clk_disable_unprepare(wcd->mclk);
+}
+
+static unsigned long wcd9335_swclk_recalc_rate(struct clk_hw *hw,
+					       unsigned long parent_rate)
+{
+	return 9600000;
+}
+
+static const struct clk_ops wcd9335_swclk_ops = {
+	.prepare = wcd9335_swclk_prepare,
+	.unprepare = wcd9335_swclk_unprepare,
+	.recalc_rate = wcd9335_swclk_recalc_rate,
+};
+
+static int wcd9335_register_swclk(struct wcd9335_codec *wcd)
+{
+	struct clk_init_data init = {
+		.name = "wcd9335-swclk",
+		.ops = &wcd9335_swclk_ops,
+	};
+	int ret;
+
+	if (!of_property_present(wcd->dev->of_node, "#clock-cells"))
+		return 0;
+
+	wcd->swclk_hw.init = &init;
+	ret = devm_clk_hw_register(wcd->dev, &wcd->swclk_hw);
+	if (ret)
+		return ret;
+
+	return devm_of_clk_add_hw_provider(wcd->dev, of_clk_hw_simple_get,
+					   &wcd->swclk_hw);
+}
+
 static int wcd9335_slim_probe(struct slim_device *slim)
 {
 	struct device *dev = &slim->dev;
@@ -5140,6 +5271,15 @@ static int wcd9335_slim_status(struct slim_device *sdev,
 		return ret;
 
 	wcd9335_probe(wcd);
+
+	ret = wcd9335_register_swclk(wcd);
+	if (ret)
+		dev_warn(dev, "Failed to register the SoundWire clock: %d\n", ret);
+
+	/* SoundWire master, if described */
+	ret = devm_of_platform_populate(dev);
+	if (ret)
+		dev_warn(dev, "Failed to populate child devices: %d\n", ret);
 
 	return 0;
 }
