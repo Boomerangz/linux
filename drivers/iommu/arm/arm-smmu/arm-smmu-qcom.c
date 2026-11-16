@@ -559,6 +559,13 @@ static int qcom_smmu_def_domain_type(struct device *dev)
 	if (of_device_is_compatible(dev->of_node, "qcom,wcn3990-wifi"))
 		return IOMMU_DOMAIN_DMA;
 
+	/*
+	 * The ADSP reaches the shared audio buffers through the LPASS SMMU
+	 * with a 32-bit address, so they need a translated domain as well.
+	 */
+	if (of_device_is_compatible(dev->of_node, "qcom,q6asm-dais"))
+		return IOMMU_DOMAIN_DMA;
+
 	return match ? IOMMU_DOMAIN_IDENTITY : 0;
 }
 
