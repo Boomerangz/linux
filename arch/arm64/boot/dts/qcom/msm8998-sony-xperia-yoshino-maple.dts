@@ -113,6 +113,7 @@
 };
 
 &tlmm {
+
 	gpio-line-names = "", /* GPIO_0 */
 			  "",
 			  "",
@@ -387,7 +388,9 @@
 				"DMIC1", "MIC BIAS1",
 				"DMIC2", "MIC BIAS3",
 				"DMIC3", "MIC BIAS4",
-				"AMIC2", "MIC BIAS2";
+				"AMIC2", "MIC BIAS2",
+				"SpkrLeft IN", "SPK1 OUT",
+				"SpkrRight IN", "SPK2 OUT";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
@@ -417,7 +420,8 @@
 			};
 
 			codec {
-				sound-dai = <&wcd9335 AIF4_PB>;
+				sound-dai = <&wcd9335 AIF4_PB>, <&left_spkr>,
+					    <&right_spkr>, <&swm 0>;
 			};
 		};
 
@@ -476,6 +480,44 @@
 			vdd-tx-supply = <&vreg_s4a_1p8>;
 			vdd-rx-supply = <&vreg_s4a_1p8>;
 			vdd-io-supply = <&vreg_s4a_1p8>;
+
+			#clock-cells = <0>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			swm: soundwire@c29 {
+				compatible = "qcom,soundwire-v1.3.0";
+				reg = <0xc29 0x40>;
+				interrupts-extended = <&wcd9335 20>;
+
+				qcom,dout-ports = <6>;
+				qcom,din-ports = <2>;
+				qcom,ports-sinterval-low = /bits/ 8 <0x07 0x1f 0x3f 0x7 0x1f 0x3f 0x0f 0x0f>;
+				qcom,ports-offset1 = /bits/ 8 <0x01 0x02 0x0c 0x6 0x12 0x0d 0x07 0x0a>;
+				qcom,ports-offset2 = /bits/ 8 <0x00 0x00 0x1f 0x00 0x00 0x1f 0x00 0x00>;
+
+				#sound-dai-cells = <1>;
+				clocks = <&wcd9335>;
+				clock-names = "iface";
+				#address-cells = <2>;
+				#size-cells = <0>;
+
+				left_spkr: speaker@0,1 {
+					compatible = "sdw10217201000";
+					reg = <0 1>;
+					#thermal-sensor-cells = <0>;
+					sound-name-prefix = "SpkrLeft";
+					#sound-dai-cells = <0>;
+				};
+
+				right_spkr: speaker@0,2 {
+					compatible = "sdw10217201000";
+					reg = <0 2>;
+					#thermal-sensor-cells = <0>;
+					sound-name-prefix = "SpkrRight";
+					#sound-dai-cells = <0>;
+				};
+			};
 		};
 	};
 };
@@ -507,5 +549,26 @@
 		gpios = <1 GPIO_ACTIVE_HIGH>;
 		output-high;
 		line-name = "EAR_EN";
+	};
+};
+
+&tlmm {
+	/*
+	 * Keep the WSA881x amplifiers out of shutdown: power cycling them on
+	 * every runtime suspend makes re-enumeration on the WCD9335 SoundWire
+	 * master unreliable.
+	 */
+	wsa-left-en-hog {
+		gpio-hog;
+		gpios = <65 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wsa-left-en";
+	};
+
+	wsa-right-en-hog {
+		gpio-hog;
+		gpios = <66 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wsa-right-en";
 	};
 };

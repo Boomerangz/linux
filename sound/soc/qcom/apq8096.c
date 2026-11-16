@@ -7,11 +7,19 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
+#include <linux/soundwire/sdw.h>
 #include "common.h"
+#include "sdw.h"
+#include "qdsp6/q6afe.h"
 
 #define SLIM_MAX_TX_PORTS 16
 #define SLIM_MAX_RX_PORTS 16
 #define WCD9335_DEFAULT_MCLK_RATE	9600000
+
+struct apq8096_snd_data {
+	struct sdw_stream_runtime *sruntime[AFE_PORT_MAX];
+	bool stream_prepared[AFE_PORT_MAX];
+};
 
 static int apq8096_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				      struct snd_pcm_hw_params *params)
@@ -34,8 +42,18 @@ static int msm_snd_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
 	u32 rx_ch[SLIM_MAX_RX_PORTS], tx_ch[SLIM_MAX_TX_PORTS];
+	struct apq8096_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	struct sdw_stream_runtime *sruntime;
+	struct snd_soc_dai *dai;
 	u32 rx_ch_cnt = 0, tx_ch_cnt = 0;
-	int ret = 0;
+	int ret = 0, i;
+
+	/* SoundWire speaker amplifiers behind the codec, if any */
+	for_each_rtd_codec_dais(rtd, i, dai) {
+		sruntime = snd_soc_dai_get_stream(dai, substream->stream);
+		if (!IS_ERR_OR_NULL(sruntime))
+			data->sruntime[cpu_dai->id] = sruntime;
+	}
 
 	ret = snd_soc_dai_get_channel_map(codec_dai,
 				&tx_ch_cnt, tx_ch, &rx_ch_cnt, rx_ch);
@@ -60,8 +78,81 @@ end:
 	return ret;
 }
 
+static int apq8096_snd_prepare(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct apq8096_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct sdw_stream_runtime *sruntime = data->sruntime[cpu_dai->id];
+	int ret;
+
+	if (!sruntime)
+		return 0;
+
+	if (data->stream_prepared[cpu_dai->id]) {
+		sdw_disable_stream(sruntime);
+		sdw_deprepare_stream(sruntime);
+		data->stream_prepared[cpu_dai->id] = false;
+	}
+
+	ret = sdw_prepare_stream(sruntime);
+	if (ret)
+		return ret;
+
+	ret = sdw_enable_stream(sruntime);
+	if (ret) {
+		sdw_deprepare_stream(sruntime);
+		return ret;
+	}
+	data->stream_prepared[cpu_dai->id] = true;
+
+	return 0;
+}
+
+static int apq8096_snd_hw_free(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct apq8096_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct sdw_stream_runtime *sruntime = data->sruntime[cpu_dai->id];
+
+	if (sruntime && data->stream_prepared[cpu_dai->id]) {
+		sdw_disable_stream(sruntime);
+		sdw_deprepare_stream(sruntime);
+		data->stream_prepared[cpu_dai->id] = false;
+	}
+
+	return 0;
+}
+
+static void apq8096_snd_shutdown(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+	struct apq8096_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct sdw_stream_runtime *sruntime = data->sruntime[cpu_dai->id];
+	struct snd_soc_dai *dai;
+	int i;
+
+	if (!sruntime) {
+		for_each_rtd_codec_dais(rtd, i, dai) {
+			sruntime = snd_soc_dai_get_stream(dai, substream->stream);
+			if (!IS_ERR_OR_NULL(sruntime))
+				break;
+			sruntime = NULL;
+		}
+	}
+
+	data->sruntime[cpu_dai->id] = NULL;
+	sdw_release_stream(sruntime);
+}
+
 static const struct snd_soc_ops apq8096_ops = {
+	.startup = qcom_snd_sdw_startup,
 	.hw_params = msm_snd_hw_params,
+	.prepare = apq8096_snd_prepare,
+	.hw_free = apq8096_snd_hw_free,
+	.shutdown = apq8096_snd_shutdown,
 };
 
 static int apq8096_init(struct snd_soc_pcm_runtime *rtd)
@@ -105,6 +196,7 @@ static void apq8096_add_be_ops(struct snd_soc_card *card)
 
 static int apq8096_platform_probe(struct platform_device *pdev)
 {
+	struct apq8096_snd_data *data;
 	struct snd_soc_card *card;
 	struct device *dev = &pdev->dev;
 	int ret;
@@ -112,6 +204,11 @@ static int apq8096_platform_probe(struct platform_device *pdev)
 	card = devm_kzalloc(dev, sizeof(*card), GFP_KERNEL);
 	if (!card)
 		return -ENOMEM;
+
+	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+	snd_soc_card_set_drvdata(card, data);
 
 	card->driver_name = "apq8096";
 	card->dev = dev;

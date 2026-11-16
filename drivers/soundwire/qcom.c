@@ -178,6 +178,8 @@ struct qcom_swrm_ctrl {
 	struct sdw_bus bus;
 	struct device *dev;
 	struct regmap *regmap;
+	/* offset of the AHB bridge registers relative to the WCD934x layout */
+	int ahb_shift;
 	u32 max_reg;
 	const unsigned int *reg_layout;
 	void __iomem *mmio;
@@ -284,12 +286,12 @@ static int qcom_swrm_ahb_reg_read(struct qcom_swrm_ctrl *ctrl, int reg,
 	int ret;
 
 	/* pg register + offset */
-	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_RD_ADDR_0,
+	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_RD_ADDR_0 + ctrl->ahb_shift,
 			  (u8 *)&reg, 4);
 	if (ret < 0)
 		return SDW_CMD_FAIL;
 
-	ret = regmap_bulk_read(wcd_regmap, SWRM_AHB_BRIDGE_RD_DATA_0,
+	ret = regmap_bulk_read(wcd_regmap, SWRM_AHB_BRIDGE_RD_DATA_0 + ctrl->ahb_shift,
 			       val, 4);
 	if (ret < 0)
 		return SDW_CMD_FAIL;
@@ -303,13 +305,13 @@ static int qcom_swrm_ahb_reg_write(struct qcom_swrm_ctrl *ctrl,
 	struct regmap *wcd_regmap = ctrl->regmap;
 	int ret;
 	/* pg register + offset */
-	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_WR_DATA_0,
+	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_WR_DATA_0 + ctrl->ahb_shift,
 			  (u8 *)&val, 4);
 	if (ret)
 		return SDW_CMD_FAIL;
 
 	/* write address register */
-	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_WR_ADDR_0,
+	ret = regmap_bulk_write(wcd_regmap, SWRM_AHB_BRIDGE_WR_ADDR_0 + ctrl->ahb_shift,
 			  (u8 *)&reg, 4);
 	if (ret)
 		return SDW_CMD_FAIL;
@@ -1511,6 +1513,9 @@ static int qcom_swrm_probe(struct platform_device *pdev)
 		ctrl->regmap = dev_get_regmap(dev->parent, NULL);
 		if (!ctrl->regmap)
 			return -EINVAL;
+		/* WCD9335 has the bridge at 0xc29 instead of 0xc85 */
+		if (of_device_is_compatible(dev->parent->of_node, "slim217,1a0"))
+			ctrl->ahb_shift = 0xc29 - SWRM_AHB_BRIDGE_WR_DATA_0;
 	} else {
 		ctrl->reg_read = qcom_swrm_cpu_reg_read;
 		ctrl->reg_write = qcom_swrm_cpu_reg_write;
