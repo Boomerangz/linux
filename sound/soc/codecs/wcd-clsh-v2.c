@@ -848,7 +848,12 @@ int wcd_clsh_ctrl_set_state(struct wcd_clsh_ctrl *ctrl,
 {
 	struct snd_soc_component *comp = ctrl->comp;
 
-	if (nstate == ctrl->state)
+	/*
+	 * Callers pass the single output being switched, not the cumulative
+	 * state, so only a repeated enable request may be skipped. Skipping a
+	 * disable left the buck and flyback on after an EAR-only stream.
+	 */
+	if (clsh_event == WCD_CLSH_EVENT_PRE_DAC && nstate == ctrl->state)
 		return 0;
 
 	if (!wcd_clsh_is_state_valid(nstate)) {
@@ -862,7 +867,9 @@ int wcd_clsh_ctrl_set_state(struct wcd_clsh_ctrl *ctrl,
 		break;
 	case WCD_CLSH_EVENT_POST_PA:
 		_wcd_clsh_ctrl_set_state(ctrl, nstate, CLSH_REQ_DISABLE, mode);
-		break;
+		ctrl->state = WCD_CLSH_STATE_IDLE;
+		ctrl->mode = mode;
+		return 0;
 	}
 
 	ctrl->state = nstate;
