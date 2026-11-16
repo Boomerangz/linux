@@ -506,3 +506,8 @@
 		firmware-gpios = <&tlmm 93 GPIO_ACTIVE_HIGH>;
 	};
 };
+
+/* Needed by the ADSP to reach the shared audio buffers */
+&lpass_q6_smmu {
+	status = "okay";
+};
