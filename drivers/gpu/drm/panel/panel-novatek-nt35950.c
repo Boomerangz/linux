@@ -289,34 +289,8 @@ static int nt35950_on(struct nt35950 *nt)
 
 	/* CMD3 */
 	nt35950_inject_black_image(&dsi_ctx);
-	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
-	mipi_dsi_msleep(&dsi_ctx, 120);
 
-	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
-	mipi_dsi_msleep(&dsi_ctx, 120);
-
-	if (dsi_ctx.accum_err)
-		return dsi_ctx.accum_err;
-
-	nt->dsi[0]->mode_flags &= ~MIPI_DSI_MODE_LPM;
-	nt->dsi[1]->mode_flags &= ~MIPI_DSI_MODE_LPM;
-
-	return 0;
-}
-
-static void nt35950_off(struct nt35950 *nt)
-{
-	struct mipi_dsi_device *dsi = nt->dsi[0];
-	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
-
-	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
-	mipi_dsi_usleep_range(&dsi_ctx, 10000, 11000);
-
-	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
-	mipi_dsi_msleep(&dsi_ctx, 150);
-
-	nt->dsi[0]->mode_flags |= MIPI_DSI_MODE_LPM;
-	nt->dsi[1]->mode_flags |= MIPI_DSI_MODE_LPM;
+	return dsi_ctx.accum_err;
 }
 
 static int nt35950_sharp_init_vregs(struct nt35950 *nt, struct device *dev)
@@ -391,11 +365,40 @@ end:
 	return 0;
 }
 
+static int nt35950_enable(struct drm_panel *panel)
+{
+	struct nt35950 *nt = to_nt35950(panel);
+	struct mipi_dsi_multi_context dsi_ctx = { .dsi = nt->dsi[0] };
+
+	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
+	mipi_dsi_msleep(&dsi_ctx, 120);
+
+	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+	mipi_dsi_msleep(&dsi_ctx, 120);
+
+	return dsi_ctx.accum_err;
+}
+
+static int nt35950_disable(struct drm_panel *panel)
+{
+	struct nt35950 *nt = to_nt35950(panel);
+	struct mipi_dsi_multi_context dsi_ctx = { .dsi = nt->dsi[0] };
+
+	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
+	mipi_dsi_usleep_range(&dsi_ctx, 10000, 11000);
+
+	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
+	mipi_dsi_msleep(&dsi_ctx, 150);
+
+	return dsi_ctx.accum_err;
+}
+
 static int nt35950_unprepare(struct drm_panel *panel)
 {
 	struct nt35950 *nt = to_nt35950(panel);
 
-	nt35950_off(nt);
+	nt->dsi[0]->mode_flags &= ~MIPI_DSI_MODE_LPM;
+	nt->dsi[1]->mode_flags &= ~MIPI_DSI_MODE_LPM;
 
 	gpiod_set_value_cansleep(nt->reset_gpio, 0);
 	regulator_bulk_disable(ARRAY_SIZE(nt->vregs), nt->vregs);
@@ -436,6 +439,8 @@ static int nt35950_get_modes(struct drm_panel *panel,
 
 static const struct drm_panel_funcs nt35950_panel_funcs = {
 	.prepare = nt35950_prepare,
+	.enable = nt35950_enable,
+	.disable = nt35950_disable,
 	.unprepare = nt35950_unprepare,
 	.get_modes = nt35950_get_modes,
 };
@@ -454,6 +459,8 @@ static int nt35950_probe(struct mipi_dsi_device *dsi)
 	if (IS_ERR(nt))
 		return PTR_ERR(nt);
 
+	nt->panel.prepare_prev_first = true;
+
 	ret = nt35950_sharp_init_vregs(nt, dev);
 	if (ret)
 		return dev_err_probe(dev, ret, "Regulator init failure.\n");
@@ -462,7 +469,8 @@ static int nt35950_probe(struct mipi_dsi_device *dsi)
 	if (!nt->desc)
 		return -ENODEV;
 
-	nt->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_ASIS);
+	/* Make sure to set RESX LOW before starting the power-on sequence */
+	nt->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(nt->reset_gpio)) {
 		return dev_err_probe(dev, PTR_ERR(nt->reset_gpio),
 				     "Failed to get reset gpio\n");
@@ -523,8 +531,6 @@ static int nt35950_probe(struct mipi_dsi_device *dsi)
 		}
 	}
 
-	/* Make sure to set RESX LOW before starting the power-on sequence */
-	gpiod_set_value_cansleep(nt->reset_gpio, 0);
 	return 0;
 }
 
