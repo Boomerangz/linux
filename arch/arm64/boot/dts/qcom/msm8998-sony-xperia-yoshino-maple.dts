@@ -491,3 +491,27 @@
 		};
 	};
 };
+
+/* Audio is work in progress: keep the SLIMbus controller off until the ADSP ordering issue is solved */
+&slim_msm {
+	status = "disabled";
+};
+
+&slimbam {
+	status = "disabled";
+};
+
+&blsp2_i2c1 {
+	status = "okay";
+
+	nfc@28 {
+		compatible = "nxp,nxp-nci-i2c";
+		reg = <0x28>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <92 IRQ_TYPE_EDGE_RISING>;
+
+		enable-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
+		firmware-gpios = <&tlmm 93 GPIO_ACTIVE_HIGH>;
+	};
+};
