@@ -374,6 +374,10 @@
 			  "Microphone", "Digital Mic3",
 			  "Microphone", "Headset Mic";
 		audio-routing = "RX_BIAS", "MCLK",
+				"MIC BIAS1", "MCLK",
+				"MIC BIAS2", "MCLK",
+				"MIC BIAS3", "MCLK",
+				"MIC BIAS4", "MCLK",
 				"DMIC0", "Digital Mic0",
 				"DMIC1", "Digital Mic1",
 				"DMIC2", "Digital Mic2",
