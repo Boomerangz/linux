@@ -366,9 +366,22 @@
 };
 
 / {
+	/*
+	 * The top speaker is shared: EAR_EN high connects it to the codec
+	 * earpiece output, low to its WSA881x amplifier.
+	 */
+	ear_switch: audio-switch {
+		compatible = "simple-audio-amplifier";
+		enable-gpios = <&pm8005_gpios 1 GPIO_ACTIVE_HIGH>;
+		sound-name-prefix = "Ear Switch";
+		pinctrl-names = "default";
+		pinctrl-0 = <&ear_en_default>;
+	};
+
 	sound {
 		compatible = "qcom,apq8096-sndcard";
 		model = "Xperia-XZ-Premium";
+		aux-devs = <&ear_switch>;
 		widgets = "Microphone", "Digital Mic0",
 			  "Microphone", "Digital Mic1",
 			  "Microphone", "Digital Mic2",
@@ -389,6 +402,8 @@
 				"DMIC2", "MIC BIAS3",
 				"DMIC3", "MIC BIAS4",
 				"AMIC2", "MIC BIAS2",
+				"Ear Switch INL", "EAR",
+				"Ear Switch INR", "EAR",
 				"SpkrLeft IN", "SPK1 OUT",
 				"SpkrRight IN", "SPK2 OUT";
 
@@ -544,23 +559,12 @@
 
 /* Earpiece amplifier enable */
 &pm8005_gpios {
-	pinctrl-names = "default";
-	pinctrl-0 = <&ear_en_default>;
-
 	/* 1.8 V push-pull, as the vendor kernel configures it */
 	ear_en_default: ear-en-default-state {
 		pins = "gpio1";
 		function = "normal";
 		power-source = <1>;
 		bias-disable;
-		output-high;
-	};
-
-	ear-en-hog {
-		gpio-hog;
-		gpios = <1 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "EAR_EN";
 	};
 };
 
