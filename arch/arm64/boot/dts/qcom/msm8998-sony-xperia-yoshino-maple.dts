@@ -335,3 +335,12 @@
 &vreg_l5a_0p8 {
 	regulator-always-on;
 };
+
+&adreno_gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&zap_shader_region>;
+		firmware-name = "qcom/msm8998/sony/maple/a540_zap.mdt";
+	};
+};

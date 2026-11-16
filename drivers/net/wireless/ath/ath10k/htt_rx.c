@@ -820,7 +820,6 @@ int ath10k_htt_rx_alloc(struct ath10k_htt *htt)
 
 	ath10k_htt_config_paddrs_ring(htt, vaddr_ring);
 	htt->rx_ring.base_paddr = paddr;
-	dev_info(htt->ar->dev, "maple-dbg: htt rx ring iova %pad limit %llx mask %llx\n", &paddr, (u64)htt->ar->dev->bus_dma_limit, (u64)dma_get_mask(htt->ar->dev));
 
 	vaddr = dma_alloc_coherent(htt->ar->dev,
 				   sizeof(*htt->rx_ring.alloc_idx.vaddr),
