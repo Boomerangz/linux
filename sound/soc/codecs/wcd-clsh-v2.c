@@ -752,6 +752,14 @@ static void wcd_clsh_state_ear(struct wcd_clsh_ctrl *ctrl, int req_state,
 
 	if (is_enable) {
 		wcd_enable_clsh_block(ctrl, true);
+		/*
+		 * The headphone states leave K1 at their 16 ohm value. Put
+		 * back the reset value (0x100) that the earpiece needs.
+		 */
+		snd_soc_component_update_bits(comp, WCD9XXX_A_CDC_CLSH_K1_MSB,
+				WCD9XXX_A_CDC_CLSH_K1_MSB_COEF_MASK, 0x01);
+		snd_soc_component_update_bits(comp, WCD9XXX_A_CDC_CLSH_K1_LSB,
+				WCD9XXX_A_CDC_CLSH_K1_LSB_COEF_MASK, 0x00);
 		snd_soc_component_update_bits(comp,
 					WCD9XXX_A_CDC_RX0_RX_PATH_CFG0,
 					WCD9XXX_A_CDC_RX_PATH_CLSH_EN_MASK,
