@@ -376,3 +376,9 @@
 		flash-max-timeout-us = <1280000>;
 	};
 };
+
+&pmi8998_fg {
+	monitored-battery = <&battery>;
+	power-supplies = <&pmi8998_charger>;
+	status = "okay";
+};
