@@ -293,8 +293,20 @@ struct wcd_slim_codec_dai_data {
 	struct slim_stream_runtime *sruntime;
 };
 
+#define WCD9335_NUM_DECIMATORS		9
+#define WCD9335_TX_UNMUTE_DELAY_MS	120
+
+struct wcd9335_codec;
+
+struct wcd9335_tx_mute_work {
+	struct wcd9335_codec *wcd;
+	u8 decimator;
+	struct delayed_work dwork;
+};
+
 struct wcd9335_codec {
 	struct device *dev;
+	struct wcd9335_tx_mute_work tx_mute_dwork[WCD9335_NUM_DECIMATORS];
 	struct clk *mclk;
 	struct clk_hw swclk_hw;
 	struct clk *native_clk;
@@ -2785,6 +2797,20 @@ static u16 wcd9335_codec_get_amic_pwlvl_reg(struct snd_soc_component *comp,
 	return pwr_level_reg;
 }
 
+static void wcd9335_tx_mute_update(struct work_struct *work)
+{
+	struct wcd9335_tx_mute_work *mw = container_of(to_delayed_work(work),
+					struct wcd9335_tx_mute_work, dwork);
+	struct wcd9335_codec *wcd = mw->wcd;
+	u16 tx_vol_ctl_reg = WCD9335_CDC_TX0_TX_PATH_CTL + 16 * mw->decimator;
+	u16 tx_gain_ctl_reg = WCD9335_CDC_TX0_TX_VOL_CTL + 16 * mw->decimator;
+
+	snd_soc_component_update_bits(wcd->component, tx_vol_ctl_reg,
+				      0x10, 0x00);
+	snd_soc_component_write(wcd->component, tx_gain_ctl_reg,
+		snd_soc_component_read(wcd->component, tx_gain_ctl_reg));
+}
+
 static int wcd9335_codec_enable_dec(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kc, int event)
 {
@@ -2889,12 +2915,24 @@ static int wcd9335_codec_enable_dec(struct snd_soc_dapm_widget *w,
 
 		snd_soc_component_update_bits(comp, hpf_gate_reg,
 						0x01, 0x01);
-		snd_soc_component_update_bits(comp, tx_vol_ctl_reg,
-						0x10, 0x00);
-		snd_soc_component_write(comp, tx_gain_ctl_reg,
-			      snd_soc_component_read(comp, tx_gain_ctl_reg));
+		/*
+		 * Keep the path muted until the stream has started and the
+		 * decimator has settled, or every capture begins with a
+		 * click. Downstream does the same from a work item.
+		 */
+		if (decimator < WCD9335_NUM_DECIMATORS) {
+			struct wcd9335_codec *wcd = dev_get_drvdata(comp->dev);
+
+			schedule_delayed_work(&wcd->tx_mute_dwork[decimator].dwork,
+				msecs_to_jiffies(WCD9335_TX_UNMUTE_DELAY_MS));
+		}
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
+		if (decimator < WCD9335_NUM_DECIMATORS) {
+			struct wcd9335_codec *wcd = dev_get_drvdata(comp->dev);
+
+			cancel_delayed_work_sync(&wcd->tx_mute_dwork[decimator].dwork);
+		}
 		hpf_coff_freq = (snd_soc_component_read(comp, dec_cfg_reg) &
 				   TX_HPF_CUT_OFF_FREQ_MASK) >> 5;
 		snd_soc_component_update_bits(comp, tx_vol_ctl_reg, 0x10, 0x10);
@@ -5119,6 +5157,13 @@ static int wcd9335_codec_probe(struct snd_soc_component *component)
 
 	for (i = 0; i < NUM_CODEC_DAIS; i++)
 		INIT_LIST_HEAD(&wcd->dai[i].slim_ch_list);
+
+	for (i = 0; i < WCD9335_NUM_DECIMATORS; i++) {
+		wcd->tx_mute_dwork[i].wcd = wcd;
+		wcd->tx_mute_dwork[i].decimator = i;
+		INIT_DELAYED_WORK(&wcd->tx_mute_dwork[i].dwork,
+				  wcd9335_tx_mute_update);
+	}
 
 	ret = wcd9335_setup_irqs(wcd);
 	if (ret)
