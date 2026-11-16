@@ -4,10 +4,12 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <sound/jack.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/pcm.h>
 #include <linux/soundwire/sdw.h>
+#include <uapi/linux/input-event-codes.h>
 #include "common.h"
 #include "sdw.h"
 #include "qdsp6/q6afe.h"
@@ -19,6 +21,20 @@
 struct apq8096_snd_data {
 	struct sdw_stream_runtime *sruntime[AFE_PORT_MAX];
 	bool stream_prepared[AFE_PORT_MAX];
+	struct snd_soc_jack jack;
+	bool jack_setup;
+};
+
+static struct snd_soc_jack_pin apq8096_jack_pins[] = {
+	{
+		.pin = "Mic Jack",
+		.mask = SND_JACK_MICROPHONE,
+	},
+	{
+		/* a line out plays through the same headphone amplifier */
+		.pin = "Headphone Jack",
+		.mask = SND_JACK_HEADPHONE | SND_JACK_LINEOUT,
+	},
 };
 
 static int apq8096_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
@@ -155,6 +171,54 @@ static const struct snd_soc_ops apq8096_ops = {
 	.shutdown = apq8096_snd_shutdown,
 };
 
+static void apq8096_jack_free(struct snd_jack *jack)
+{
+	struct snd_soc_component *component = jack->private_data;
+
+	snd_soc_component_set_jack(component, NULL, NULL);
+}
+
+static int apq8096_jack_init(struct snd_soc_pcm_runtime *rtd)
+{
+	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
+	struct snd_soc_card *card = rtd->card;
+	struct apq8096_snd_data *data = snd_soc_card_get_drvdata(card);
+	struct snd_jack *jack;
+	int ret;
+
+	if (data->jack_setup)
+		return 0;
+
+	ret = snd_soc_card_jack_new_pins(card, "Headset Jack",
+					 SND_JACK_HEADSET | SND_JACK_LINEOUT |
+					 SND_JACK_MECHANICAL |
+					 SND_JACK_BTN_0 | SND_JACK_BTN_1 |
+					 SND_JACK_BTN_2 | SND_JACK_BTN_3,
+					 &data->jack, apq8096_jack_pins,
+					 ARRAY_SIZE(apq8096_jack_pins));
+	if (ret)
+		return dev_err_probe(card->dev, ret, "Failed to add the jack\n");
+
+	jack = data->jack.jack;
+	snd_jack_set_key(jack, SND_JACK_BTN_0, KEY_PLAYPAUSE);
+	snd_jack_set_key(jack, SND_JACK_BTN_1, KEY_VOICECOMMAND);
+	snd_jack_set_key(jack, SND_JACK_BTN_2, KEY_VOLUMEUP);
+	snd_jack_set_key(jack, SND_JACK_BTN_3, KEY_VOLUMEDOWN);
+
+	data->jack_setup = true;
+
+	ret = snd_soc_component_set_jack(codec_dai->component, &data->jack, NULL);
+	if (ret && ret != -ENOTSUPP)
+		return dev_err_probe(card->dev, ret, "Failed to set the jack\n");
+
+	if (!ret) {
+		jack->private_data = codec_dai->component;
+		jack->private_free = apq8096_jack_free;
+	}
+
+	return 0;
+}
+
 static int apq8096_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
@@ -177,7 +241,7 @@ static int apq8096_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dai_set_sysclk(codec_dai, 0, WCD9335_DEFAULT_MCLK_RATE,
 				SNDRV_PCM_STREAM_PLAYBACK);
 
-	return 0;
+	return apq8096_jack_init(rtd);
 }
 
 static void apq8096_add_be_ops(struct snd_soc_card *card)
