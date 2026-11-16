@@ -496,6 +496,15 @@
 			vdd-rx-supply = <&vreg_s4a_1p8>;
 			vdd-io-supply = <&vreg_s4a_1p8>;
 
+			/*
+			 * Downstream: qcom,msm-mbhc-hphl-swh = <1> (normally
+			 * open), gnd-swh = <0> (normally closed); button upper
+			 * limits 75/137/237/500 mV from msm8998.c.
+			 */
+			qcom,ground-jack-type-normally-closed;
+			qcom,mbhc-buttons-vthreshold-microvolt = <75000 137000 237000 500000
+								  500000 500000 500000 500000>;
+
 			#clock-cells = <0>;
 			#address-cells = <1>;
 			#size-cells = <1>;
