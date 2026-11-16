@@ -7,6 +7,7 @@
 /dts-v1/;
 
 #include "msm8998-sony-xperia-yoshino.dtsi"
+#include <dt-bindings/sound/qcom,wcd9335.h>
 
 / {
 	model = "Sony Xperia XZ Premium";
@@ -392,4 +393,101 @@
 	firmware-name = "qcom/msm8998/sony/maple/slpi_v2.mdt";
 	px-supply = <&vreg_lvs2a_1p8>;
 	status = "okay";
+};
+
+/ {
+	sound {
+		compatible = "qcom,apq8096-sndcard";
+		model = "Xperia-XZ-Premium";
+		audio-routing = "RX_BIAS", "MCLK";
+
+		mm1-dai-link {
+			link-name = "MultiMedia1";
+
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+			};
+		};
+
+		mm2-dai-link {
+			link-name = "MultiMedia2";
+
+			cpu {
+				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+			};
+		};
+
+		slim-dai-link {
+			link-name = "SLIM Playback";
+
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_6_RX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9335 AIF4_PB>;
+			};
+		};
+
+		slimcap-dai-link {
+			link-name = "SLIM Capture";
+
+			cpu {
+				sound-dai = <&q6afedai SLIMBUS_0_TX>;
+			};
+
+			platform {
+				sound-dai = <&q6routing>;
+			};
+
+			codec {
+				sound-dai = <&wcd9335 AIF1_CAP>;
+			};
+		};
+	};
+};
+
+&slim_msm {
+	status = "okay";
+
+	slim@1 {
+		reg = <1>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		tasha_ifd: tas-ifd@0,0 {
+			compatible = "slim217,1a0";
+			reg = <0 0>;
+		};
+
+		wcd9335: codec@1,0 {
+			compatible = "slim217,1a0";
+			reg = <1 0>;
+
+			clock-names = "mclk", "slimbus";
+			clocks = <&div1_mclk>,
+				 <&rpmcc RPM_SMD_LN_BB_CLK1>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <54 IRQ_TYPE_LEVEL_HIGH>,
+				     <53 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "intr1", "intr2";
+			interrupt-controller;
+			#interrupt-cells = <1>;
+
+			reset-gpios = <&tlmm 64 GPIO_ACTIVE_LOW>;
+			slim-ifc-dev = <&tasha_ifd>;
+
+			#sound-dai-cells = <1>;
+
+			vdd-buck-supply = <&vreg_s4a_1p8>;
+			vdd-buck-sido-supply = <&vreg_s4a_1p8>;
+			vdd-tx-supply = <&vreg_s4a_1p8>;
+			vdd-rx-supply = <&vreg_s4a_1p8>;
+			vdd-io-supply = <&vreg_s4a_1p8>;
+		};
+	};
 };
