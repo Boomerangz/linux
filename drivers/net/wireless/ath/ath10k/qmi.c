@@ -9,6 +9,7 @@
 #include <linux/debugfs.h>
 #include <linux/idr.h>
 #include <linux/kernel.h>
+#include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/module.h>
 #include <linux/net.h>
