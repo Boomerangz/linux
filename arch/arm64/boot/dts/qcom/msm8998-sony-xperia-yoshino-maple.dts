@@ -382,3 +382,14 @@
 	power-supplies = <&pmi8998_charger>;
 	status = "okay";
 };
+
+&remoteproc_adsp {
+	firmware-name = "qcom/msm8998/sony/maple/adsp.mdt";
+	status = "okay";
+};
+
+&remoteproc_slpi {
+	firmware-name = "qcom/msm8998/sony/maple/slpi_v2.mdt";
+	px-supply = <&vreg_lvs2a_1p8>;
+	status = "okay";
+};
