@@ -5069,7 +5069,9 @@ static int wcd9335_mbhc_init(struct snd_soc_component *comp)
 	cfg->anc_micbias = MIC_BIAS_2;
 	cfg->v_hs_max = WCD9335_MBHC_HS_V_MAX;
 	cfg->num_btn = WCD_MBHC_DEF_BUTTONS;
-	cfg->gnd_det_en = true;
+	/* Sony yoshino: downstream leaves the ground switch detection off */
+	cfg->gnd_det_en = !of_property_read_bool(wcd->dev->of_node,
+						  "qcom,mbhc-no-ground-detect");
 	wcd_dt_parse_mbhc_data(wcd->dev, cfg);
 
 	intr_ids->mbhc_sw_intr = regmap_irq_get_virq(wcd->irq_data,
