@@ -399,7 +399,15 @@
 	sound {
 		compatible = "qcom,apq8096-sndcard";
 		model = "Xperia-XZ-Premium";
-		audio-routing = "RX_BIAS", "MCLK";
+		audio-routing = "RX_BIAS", "MCLK",
+				"AMIC2", "MIC BIAS2",
+				"AMIC3", "MIC BIAS3",
+				"DMIC0", "MIC BIAS1",
+				"DMIC1", "MIC BIAS1",
+				"DMIC2", "MIC BIAS3",
+				"DMIC3", "MIC BIAS4",
+				"DMIC4", "MIC BIAS4",
+				"DMIC5", "MIC BIAS4";
 
 		mm1-dai-link {
 			link-name = "MultiMedia1";
@@ -510,4 +518,14 @@
 /* Needed by the ADSP to reach the shared audio buffers */
 &lpass_q6_smmu {
 	status = "okay";
+};
+
+/* Earpiece amplifier enable */
+&pm8005_gpios {
+	ear-en-hog {
+		gpio-hog;
+		gpios = <1 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "EAR_EN";
+	};
 };
