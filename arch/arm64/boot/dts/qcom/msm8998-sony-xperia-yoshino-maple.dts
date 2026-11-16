@@ -492,15 +492,6 @@
 	};
 };
 
-/* Audio is work in progress: keep the SLIMbus controller off until the ADSP ordering issue is solved */
-&slim_msm {
-	status = "disabled";
-};
-
-&slimbam {
-	status = "disabled";
-};
-
 &blsp2_i2c1 {
 	status = "okay";
 
