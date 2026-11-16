@@ -9,6 +9,7 @@
 
 #include <linux/export.h>
 
+#include <linux/of.h>
 #include "core.h"
 #include "htc.h"
 #include "htt.h"
@@ -3149,6 +3150,16 @@ static void ath10k_htt_rx_delba(struct ath10k *ar, struct htt_resp *resp)
 	spin_unlock_bh(&ar->data_lock);
 }
 
+static bool ath10k_htt_rx_lenient_amsdu(void)
+{
+	static int lenient = -1;
+
+	if (lenient < 0)
+		lenient = of_machine_is_compatible("sony,xperia-maple");
+
+	return lenient;
+}
+
 static int ath10k_htt_rx_extract_amsdu(struct ath10k_hw_params *hw,
 				       struct sk_buff_head *list,
 				       struct sk_buff_head *amsdu)
@@ -3183,6 +3194,14 @@ static int ath10k_htt_rx_extract_amsdu(struct ath10k_hw_params *hw,
 	rxd_msdu_end_common = ath10k_htt_rx_desc_get_msdu_end(hw, rxd);
 	if (!(rxd_msdu_end_common->info0 &
 	      __cpu_to_le32(RX_MSDU_END_INFO0_LAST_MSDU))) {
+		/*
+		 * WLAN.HL.1.0.c4 (Sony yoshino) sometimes ends an in-order
+		 * indication without the last-MSDU flag. Deliver what was
+		 * received instead of declaring the whole RX path confused.
+		 */
+		if (ath10k_htt_rx_lenient_amsdu())
+			return 0;
+
 		skb_queue_splice_init(amsdu, list);
 		return -EAGAIN;
 	}
