@@ -130,6 +130,9 @@ static u8 csiphy_get_bpp(const struct csiphy_format_info *formats,
 	return formats[0].bpp;
 }
 
+static bool csiphy_match_clock_name(const char *clock_name,
+				    const char *format, int index);
+
 /*
  * csiphy_set_clock_rates - Calculate and set clock rates on CSIPHY module
  * @csiphy: CSIPHY device
@@ -180,9 +183,15 @@ static int csiphy_set_clock_rates(struct csiphy_device *csiphy)
 				return -EINVAL;
 			}
 
-			csiphy->timer_clk_rate = round_rate;
+			/*
+			 * Only the timer clock drives the settle counter; the
+			 * msm8998 PHYs also rate their own csiphyN core clock.
+			 */
+			if (csiphy_match_clock_name(clock->name, "csiphy%d_timer",
+						    csiphy->id))
+				csiphy->timer_clk_rate = round_rate;
 
-			ret = clk_set_rate(clock->clk, csiphy->timer_clk_rate);
+			ret = clk_set_rate(clock->clk, round_rate);
 			if (ret < 0) {
 				dev_err(dev, "clk set rate failed: %d\n", ret);
 				return ret;
