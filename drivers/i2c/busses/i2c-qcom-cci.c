@@ -67,7 +67,7 @@
 #define CCI_IRQ_STATUS_0_I2C_M0_ERROR		0x18000ee6
 #define CCI_IRQ_STATUS_0_I2C_M1_ERROR		0x60ee6000
 
-#define CCI_TIMEOUT	(msecs_to_jiffies(100))
+#define CCI_TIMEOUT	(msecs_to_jiffies(1000))
 #define NUM_MASTERS	2
 #define NUM_QUEUES	2
 
