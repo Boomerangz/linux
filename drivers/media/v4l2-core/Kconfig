@@ -82,3 +82,10 @@ config V4L2_CCI_I2C
 	depends on I2C
 	select REGMAP_I2C
 	select V4L2_CCI
+
+config V4L2_LOOPBACK
+	tristate "V4L2 loopback devices (out-of-tree v4l2loopback 0.12.7, Ubuntu)"
+	depends on VIDEO_DEV
+	help
+	  Virtual video devices fed by a userspace producer (v4l2-relayd).
+	  Lets V4L2-only apps use cameras that need libcamera.
