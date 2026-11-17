@@ -4,6 +4,8 @@
 #define __QCOM_SMGR_H__
 
 #include <linux/iio/iio.h>
+#include <linux/mutex.h>
+#include <linux/workqueue.h>
 #include <linux/iio/types.h>
 #include <linux/soc/qcom/qmi.h>
 #include <linux/types.h>
@@ -52,10 +54,20 @@ struct qcom_smgr_sensor {
 	struct qcom_smgr_data_type_item *data_types;
 
 	struct iio_dev *iio_dev;
+
+	/* Latest sample, for polled reads of in_*_raw */
+	s32 last_values[3];
+	bool have_sample;
 };
 
 struct qcom_smgr_iio_priv {
 	struct qcom_smgr_sensor *sensor;
+	struct iio_dev *iio_dev;
+
+	/* Streaming started by a polled read; stopped after a quiet period */
+	struct mutex poll_lock;
+	struct delayed_work poll_stop;
+	bool polling;
 
 	int samp_freq_vals[3];
 };
