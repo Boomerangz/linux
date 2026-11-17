@@ -311,8 +311,8 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
 	if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT) {
 		temp = le32_to_cpu(iio_data.values[0]);
 		temp >>= SMGR_VALUE_DECIMAL_OFFSET;
-		temp = ~temp & 1;
-		temp *= sensor->data_types[0].range;
+		/* IIO convention: a larger value means closer; unitless 1 = near, 0 = far (scale 1) */
+		temp = temp & 1;
 		iio_data.values[0] = cpu_to_le32(temp);
 	}
 
@@ -457,6 +457,10 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
 		*val = priv->sensor->data_types[0].cur_sample_rate;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
+		if (chan->type == IIO_PROXIMITY) {
+			*val = 1;
+			return IIO_VAL_INT;
+		}
 		*val = 1;
 		*val2 = 1 << SMGR_VALUE_DECIMAL_OFFSET;
 		return IIO_VAL_FRACTIONAL;
