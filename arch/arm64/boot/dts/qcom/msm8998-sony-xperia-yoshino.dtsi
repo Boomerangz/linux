@@ -1041,16 +1041,30 @@
 &cci_i2c0 {
 	/* Main (rear) camera, IMX400, module SOI20BS2 */
 	camera@10 {
-		compatible = "sony,maple-camprobe";
+		compatible = "sony,imx400";
 		reg = <0x10>;
 		vdig-supply = <&cam0_vdig_vreg>;
 		vio-supply = <&cam_vio_vreg>;
+		/* autofocus actuator (Rohm BU64747GWZ) supply, 2.7 V as downstream */
+		vaf-supply = <&vreg_l19a_2p7>;
 		clocks = <&mmcc CAMSS_MCLK0_CLK>;
 		assigned-clocks = <&mmcc MCLK0_CLK_SRC>;
-		assigned-clock-rates = <24000000>;
+		/* the vendor setup is written for an 8 MHz EXCK (downstream SENSOR_MCLK_DEFAULT) */
+		assigned-clock-rates = <8000000>;
 		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&cam_mclk0_default>;
+		/* downstream module mount_angle 90 */
+		rotation = <90>;
+		orientation = <1>;
+
+		port {
+			rear_cam_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <676000000>;
+				remote-endpoint = <&camss_csiphy0_ep>;
+			};
+		};
 	};
 };
 
@@ -1104,6 +1118,16 @@
 	status = "okay";
 
 	ports {
+		port@0 {
+			reg = <0>;
+
+			camss_csiphy0_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				clock-lanes = <7>;
+				remote-endpoint = <&rear_cam_ep>;
+			};
+		};
+
 		port@2 {
 			reg = <2>;
 
