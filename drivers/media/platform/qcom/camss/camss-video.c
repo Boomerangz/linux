@@ -692,6 +692,8 @@ int msm_video_register(struct camss_video *video, struct v4l2_device *v4l2_dev,
 	q->io_modes = VB2_DMABUF | VB2_MMAP | VB2_READ;
 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
 	q->buf_struct_size = sizeof(struct camss_buffer);
+	/* the VFE must not start with an empty queue (write master on IOVA 0) */
+	q->min_queued_buffers = 2;
 	q->dev = video->camss->dev;
 	q->lock = &video->q_lock;
 	ret = vb2_queue_init(q);

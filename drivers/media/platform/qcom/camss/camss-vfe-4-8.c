@@ -457,17 +457,31 @@ static void vfe_bus_reload_wm(struct vfe_device *vfe, u8 wm)
 
 static void vfe_wm_set_ping_addr(struct vfe_device *vfe, u8 wm, u32 addr)
 {
+	u32 limit = addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0;
+
+	/* Never leave an enabled write master on the unmapped IOVA 0 */
+	if (!addr && vfe->scratch) {
+		addr = lower_32_bits(vfe->scratch_iova);
+		limit = (addr + PAGE_SIZE) & 0xffffffe0;
+	}
 	writel_relaxed(addr,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR(wm));
-	writel_relaxed(addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0,
+	writel_relaxed(limit,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PING_ADDR_LIMIT(wm));
 }
 
 static void vfe_wm_set_pong_addr(struct vfe_device *vfe, u8 wm, u32 addr)
 {
+	u32 limit = addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0;
+
+	/* Never leave an enabled write master on the unmapped IOVA 0 */
+	if (!addr && vfe->scratch) {
+		addr = lower_32_bits(vfe->scratch_iova);
+		limit = (addr + PAGE_SIZE) & 0xffffffe0;
+	}
 	writel_relaxed(addr,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR(wm));
-	writel_relaxed(addr ? (addr + vfe->sizeimage) & 0xffffffe0 : 0,
+	writel_relaxed(limit,
 		       vfe->base + VFE_0_BUS_IMAGE_MASTER_n_WR_PONG_ADDR_LIMIT(wm));
 }
 
