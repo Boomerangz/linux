@@ -79,6 +79,7 @@
 #define CCI_I2C_WRITE		9
 #define CCI_I2C_READ		10
 #define CCI_WRITE_CHUNK		11
+#define CCI_I2C_WRITE_DISABLE_P	11
 
 #define CCI_I2C_REPORT_IRQ_EN	BIT(8)
 
@@ -332,8 +333,8 @@ static int cci_validate_queue(struct cci *cci, u8 master, u8 queue)
 	return cci_run_queue(cci, master, queue);
 }
 
-static int cci_i2c_read(struct cci *cci, u16 master,
-			u16 addr, u8 *buf, u16 len)
+static int cci_i2c_read(struct cci *cci, u16 master, u16 addr,
+			const u8 *wbuf, u16 wlen, u8 *buf, u16 len)
 {
 	u32 val, words_read, words_exp;
 	u8 queue = QUEUE_1;
@@ -350,6 +351,14 @@ static int cci_i2c_read(struct cci *cci, u16 master,
 
 	val = CCI_I2C_SET_PARAM | (addr & 0x7f) << 4;
 	writel(val, cci->base + CCI_I2C_Mm_Qn_LOAD_DATA(master, queue));
+
+	/* register address without a stop, then a repeated-start read */
+	if (wlen) {
+		val = CCI_I2C_WRITE_DISABLE_P | wlen << 4;
+		for (i = 0; i < wlen; i++)
+			val |= wbuf[i] << (8 * (i + 1));
+		writel(val, cci->base + CCI_I2C_Mm_Qn_LOAD_DATA(master, queue));
+	}
 
 	val = CCI_I2C_READ | len << 4;
 	writel(val, cci->base + CCI_I2C_Mm_Qn_LOAD_DATA(master, queue));
@@ -447,9 +456,19 @@ static int cci_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 
 retry:
 	for (i = 0; i < num; i++) {
-		if (msgs[i].flags & I2C_M_RD)
+		if (!(msgs[i].flags & I2C_M_RD) && i + 1 < num &&
+		    (msgs[i + 1].flags & I2C_M_RD) &&
+		    msgs[i + 1].addr == msgs[i].addr &&
+		    msgs[i].len >= 1 && msgs[i].len <= 3) {
+			/* write-then-read: keep the repeated start */
 			ret = cci_i2c_read(cci, cci_master->master,
 					   msgs[i].addr, msgs[i].buf,
+					   msgs[i].len, msgs[i + 1].buf,
+					   msgs[i + 1].len);
+			i++;
+		} else if (msgs[i].flags & I2C_M_RD)
+			ret = cci_i2c_read(cci, cci_master->master,
+					   msgs[i].addr, NULL, 0, msgs[i].buf,
 					   msgs[i].len);
 		else
 			ret = cci_i2c_write(cci, cci_master->master,
