@@ -148,6 +148,12 @@ struct vfe_device {
 	u32 irq;
 	char irq_name[30];
 	struct camss_clock *clock;
+	/*
+	 * sizeimage of the active output. VFE 4.7/4.8 need it to compute the
+	 * write-master address limits, and ops_gen1->wm_set_{ping,pong}_addr()
+	 * are only handed an address.
+	 */
+	u32 sizeimage;
 	int nclocks;
 	struct completion reset_complete;
 	struct completion halt_complete;
