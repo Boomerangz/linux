@@ -426,12 +426,13 @@ static int cci_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 {
 	struct cci_master *cci_master = i2c_get_adapdata(adap);
 	struct cci *cci = cci_master->cci;
-	int i, ret;
+	int i, ret, tries = 2;
 
 	ret = pm_runtime_get_sync(cci->dev);
 	if (ret < 0)
 		goto err;
 
+retry:
 	for (i = 0; i < num; i++) {
 		if (msgs[i].flags & I2C_M_RD)
 			ret = cci_i2c_read(cci, cci_master->master,
@@ -445,6 +446,14 @@ static int cci_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		if (ret < 0)
 			break;
 	}
+
+	/*
+	 * On msm8998 the first transfer on master 1 after master 0 was used
+	 * can time out; cci_run_queue() has reset and re-initialised the
+	 * controller by then, so one retry of the whole transfer succeeds.
+	 */
+	if (ret == -ETIMEDOUT && --tries)
+		goto retry;
 
 	if (!ret)
 		ret = num;
