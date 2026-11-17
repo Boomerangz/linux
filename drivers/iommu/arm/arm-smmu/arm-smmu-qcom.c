@@ -557,6 +557,10 @@ static int qcom_smmu_def_domain_type(struct device *dev)
 	if (of_device_is_compatible(dev->of_node, "qcom,q6asm-dais"))
 		return IOMMU_DOMAIN_DMA;
 
+	/* CAMSS has a 32-bit DMA mask: without translation every buffer bounces */
+	if (of_device_is_compatible(dev->of_node, "qcom,msm8998-camss"))
+		return IOMMU_DOMAIN_DMA;
+
 	return match ? IOMMU_DOMAIN_IDENTITY : 0;
 }
 
