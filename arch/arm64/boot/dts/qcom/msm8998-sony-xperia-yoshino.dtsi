@@ -1057,6 +1057,7 @@
 		/* downstream module mount_angle 90 */
 		rotation = <90>;
 		orientation = <1>;
+		lens-focus = <&rear_af>;
 
 		port {
 			rear_cam_ep: endpoint {
@@ -1065,6 +1066,17 @@
 				remote-endpoint = <&camss_csiphy0_ep>;
 			};
 		};
+	};
+
+	/* rear autofocus controller, downstream slave 0x76 (8-bit 0xec) */
+	rear_af: actuator@76 {
+		compatible = "rohm,bu64747";
+		reg = <0x76>;
+		/* the Hall servo only runs with the module clock and core supply up */
+		clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		vdig-supply = <&cam0_vdig_vreg>;
+		vio-supply = <&cam_vio_vreg>;
+		vdd-supply = <&vreg_l19a_2p7>;
 	};
 };
 
