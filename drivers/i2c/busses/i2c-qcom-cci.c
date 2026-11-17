@@ -787,7 +787,7 @@ static const struct cci_data cci_v2_data = {
 		.thd_dat = 22,
 		.thd_sta = 35,
 		.tbuf = 62,
-		.scl_stretch_en = 0,
+		.scl_stretch_en = 1, /* Rohm AF/OIS controllers stretch SCL (yoshino DT) */
 		.trdhld = 6,
 		.tsp = 3
 	},
