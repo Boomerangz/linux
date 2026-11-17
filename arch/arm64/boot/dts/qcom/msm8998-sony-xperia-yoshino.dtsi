@@ -1033,3 +1033,55 @@
 	vdda-phy-supply = <&vreg_l1a_0p875>;
 	vdda-pll-supply = <&vreg_l2a_1p2>;
 };
+
+&cci {
+	status = "okay";
+};
+
+&cci_i2c0 {
+	/* Main (rear) camera, IMX400, module SOI20BS2 */
+	camera@10 {
+		compatible = "sony,maple-camprobe";
+		reg = <0x10>;
+		vdig-supply = <&cam0_vdig_vreg>;
+		vio-supply = <&cam_vio_vreg>;
+		clocks = <&mmcc CAMSS_MCLK0_CLK>;
+		assigned-clocks = <&mmcc MCLK0_CLK_SRC>;
+		assigned-clock-rates = <24000000>;
+		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_mclk0_default>;
+	};
+};
+
+&cci_i2c1 {
+	/* Front camera, module SOI13BS1/SEM13BS1 */
+	camera@1a {
+		compatible = "sony,maple-camprobe";
+		reg = <0x1a>;
+		vdig-supply = <&cam1_vdig_vreg>;
+		vio-supply = <&cam_vio_vreg>;
+		clocks = <&mmcc CAMSS_MCLK1_CLK>;
+		assigned-clocks = <&mmcc MCLK1_CLK_SRC>;
+		assigned-clock-rates = <24000000>;
+		reset-gpios = <&tlmm 28 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_mclk1_default>;
+	};
+};
+
+&tlmm {
+	cam_mclk0_default: cam-mclk0-default-state {
+		pins = "gpio13";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	cam_mclk1_default: cam-mclk1-default-state {
+		pins = "gpio14";
+		function = "cam_mclk";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};

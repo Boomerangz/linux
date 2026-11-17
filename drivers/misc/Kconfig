@@ -50,6 +50,12 @@ config AD525X_DPOT_SPI
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad525x_dpot-spi.
 
+config SONY_MAPLE_CAMPROBE
+	tristate "Xperia XZ Premium camera module probe (bring-up helper)"
+	depends on I2C && OF && COMMON_CLK
+	help
+	  Powers a camera module up and reads its sensor model ID over CCI.
+
 config DUMMY_IRQ
 	tristate "Dummy IRQ handler"
 	help
