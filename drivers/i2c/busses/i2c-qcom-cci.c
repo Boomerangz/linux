@@ -78,6 +78,7 @@
 #define CCI_I2C_REPORT		8
 #define CCI_I2C_WRITE		9
 #define CCI_I2C_READ		10
+#define CCI_WRITE_CHUNK		11
 
 #define CCI_I2C_REPORT_IRQ_EN	BIT(8)
 
@@ -388,7 +389,7 @@ static int cci_i2c_write(struct cci *cci, u16 master,
 			 u16 addr, u8 *buf, u16 len)
 {
 	u8 queue = QUEUE_0;
-	u8 load[12] = { 0 };
+	u8 load[12 * 20] = { 0 };
 	int i = 0, j, ret;
 	u32 val;
 
@@ -403,6 +404,18 @@ static int cci_i2c_write(struct cci *cci, u16 master,
 	val = CCI_I2C_SET_PARAM | (addr & 0x7f) << 4;
 	writel(val, cci->base + CCI_I2C_Mm_Qn_LOAD_DATA(master, queue));
 
+	/*
+	 * CCI v1.2+ chains WRITE commands into one I2C transaction: a length
+	 * field of 0xf means "11 bytes, no stop"; the next WRITE carries on
+	 * with data only (the downstream "burst" sequential write). Each
+	 * command starts on a queue word boundary.
+	 */
+	while (len > CCI_WRITE_CHUNK) {
+		load[i++] = CCI_I2C_WRITE | 0xf << 4;
+		for (j = 0; j < CCI_WRITE_CHUNK; j++)
+			load[i++] = *buf++;
+		len -= CCI_WRITE_CHUNK;
+	}
 	load[i++] = CCI_I2C_WRITE | len << 4;
 
 	for (j = 0; j < len; j++)
@@ -751,7 +764,7 @@ static const struct cci_data cci_v2_data = {
 	.num_masters = 2,
 	.queue_size = { 64, 16 },
 	.quirks = {
-		.max_write_len = 11,
+		.max_write_len = 11 * 20,
 		.max_read_len = 12,
 	},
 	.params[I2C_MODE_STANDARD] = {
