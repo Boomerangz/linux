@@ -3759,6 +3759,13 @@ static int vfe_parent_dev_ops_get(struct camss *camss, int id)
 {
 	int ret = -EINVAL;
 
+	/*
+	 * With an ISPIF the CSIDs are not tied to a VFE of the same index, and
+	 * there can be more CSIDs than VFEs (CSID2/3 on MSM8996, SDM660, MSM8998).
+	 */
+	if (camss->res->ispif_res && id >= camss->res->vfe_num)
+		return 0;
+
 	if (id < camss->res->vfe_num) {
 		struct vfe_device *vfe = &camss->vfe[id];
 
