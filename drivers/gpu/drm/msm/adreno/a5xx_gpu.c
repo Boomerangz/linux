@@ -997,6 +997,16 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 			    shadowptr(a5xx_gpu, gpu->rb[0]));
 	}
 
+	/*
+	 * The SMMU was reset with the GPU (it shares the power domain), so TTBR0
+	 * no longer holds the last context's pagetable: force the next submit to
+	 * emit CP_SMMU_TABLE_UPDATE, as a6xx does.  Without this, the first submit
+	 * after a GPU power cycle from the same context runs its IBs under a stale
+	 * pagetable (TRANSLATION faults at the IB base + CP opcode errors).
+	 */
+	for (unsigned int i = 0; i < gpu->nr_rings; i++)
+		gpu->rb[i]->cur_ctx_seqno = 0;
+
 	a5xx_preempt_hw_init(gpu);
 
 	/* Disable the interrupts through the initial bringup stage */
