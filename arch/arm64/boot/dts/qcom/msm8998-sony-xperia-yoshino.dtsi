@@ -1056,17 +1056,29 @@
 
 &cci_i2c1 {
 	/* Front camera, module SOI13BS1/SEM13BS1 */
-	camera@1a {
-		compatible = "sony,maple-camprobe";
+	/* Front camera, IMX258 (module SOI13BS1/SEM13BS1), 4 lanes on CSIPHY2 */
+	front_cam: camera@1a {
+		compatible = "sony,imx258";
 		reg = <0x1a>;
-		vdig-supply = <&cam1_vdig_vreg>;
-		vio-supply = <&cam_vio_vreg>;
 		clocks = <&mmcc CAMSS_MCLK1_CLK>;
 		assigned-clocks = <&mmcc MCLK1_CLK_SRC>;
 		assigned-clock-rates = <24000000>;
+		vana-supply = <&vreg_l22a_2p85>;
+		vdig-supply = <&cam1_vdig_vreg>;
+		vif-supply = <&cam_vio_vreg>;
 		reset-gpios = <&tlmm 28 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&cam_mclk1_default>;
+		rotation = <270>;
+		orientation = <0>;
+
+		port {
+			front_cam_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <636000000 321000000>;
+				remote-endpoint = <&camss_csiphy2_ep>;
+			};
+		};
 	};
 };
 
@@ -1083,5 +1095,23 @@
 		function = "cam_mclk";
 		drive-strength = <2>;
 		bias-disable;
+	};
+};
+
+&camss {
+	vdda-supply = <&vreg_l2a_1p2>;
+	vdd_sec-supply = <&vreg_l1a_0p875>;
+	status = "okay";
+
+	ports {
+		port@2 {
+			reg = <2>;
+
+			camss_csiphy2_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				clock-lanes = <7>;
+				remote-endpoint = <&front_cam_ep>;
+			};
+		};
 	};
 };
