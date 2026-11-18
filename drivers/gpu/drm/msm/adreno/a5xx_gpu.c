@@ -1842,7 +1842,13 @@ struct msm_gpu *a5xx_gpu_init(struct drm_device *dev)
 
 	nr_rings = 4;
 
-	if (config->info->revn == 510)
+	/*
+	 * maple (a540): with ring preemption and per-process pagetables the CP kept
+	 * faulting ("CP opcode error", TRANSLATION faults reading IBs, hundreds of
+	 * hangcheck recoveries) as soon as several processes used the GPU (Lomiri +
+	 * camera app + libcamera GPU ISP). Run a single ring, no preemption.
+	 */
+	if (config->info->revn == 510 || config->info->revn == 540)
 		nr_rings = 1;
 
 	ret = adreno_gpu_init(dev, pdev, adreno_gpu, &funcs, nr_rings);
