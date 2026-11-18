@@ -197,6 +197,10 @@
 	};
 };
 
+&apc_cprh {
+	status = "okay";
+};
+
 &blsp1_i2c5 {
 	status = "okay";
 	clock-frequency = <355000>;
@@ -269,6 +273,10 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&tof_int_n &tof_reset>;
 	};
+};
+
+&cpufreq_hw {
+	status = "okay";
 };
 
 &ibb {
