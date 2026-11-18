@@ -358,6 +358,7 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
 
 	for (j = 0; j < ARRAY_SIZE(iio_data.values); ++j)
 		WRITE_ONCE(sensor->last_values[j], (s32)le32_to_cpu(iio_data.values[j]));
+	WRITE_ONCE(sensor->sample_seq, sensor->sample_seq + 1);
 	WRITE_ONCE(sensor->have_sample, true);
 
 	iio_push_to_buffers(sensor->iio_dev, &iio_data);
@@ -449,6 +450,7 @@ static int qcom_smgr_read_polled(struct iio_dev *iio_dev,
 	struct qcom_smgr *smgr = dev_get_drvdata(iio_dev->dev.parent);
 	struct qcom_smgr_iio_priv *priv = iio_priv(iio_dev);
 	struct qcom_smgr_sensor *sensor = priv->sensor;
+	unsigned int seq = READ_ONCE(sensor->sample_seq);
 	int ret, i;
 
 	if (chan->scan_index < 0 || chan->scan_index >= ARRAY_SIZE(sensor->last_values))
@@ -472,6 +474,15 @@ static int qcom_smgr_read_polled(struct iio_dev *iio_dev,
 		msleep(10);
 	if (!READ_ONCE(sensor->have_sample))
 		return -EAGAIN;
+
+	/*
+	 * Pace polling readers (sensorfw reads the raw files in a loop, at
+	 * thousands of reads per second when asked for interval 0): wait for
+	 * a fresh sample, but no longer than 200 ms so on-change sensors
+	 * (light, proximity) still answer.
+	 */
+	for (i = 0; i < 20 && READ_ONCE(sensor->sample_seq) == seq; i++)
+		msleep(10);
 
 	*val = READ_ONCE(sensor->last_values[chan->scan_index]);
 	return IIO_VAL_INT;

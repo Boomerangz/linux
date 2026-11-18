@@ -58,6 +58,7 @@ struct qcom_smgr_sensor {
 	/* Latest sample, for polled reads of in_*_raw */
 	s32 last_values[3];
 	bool have_sample;
+	unsigned int sample_seq;
 };
 
 struct qcom_smgr_iio_priv {
