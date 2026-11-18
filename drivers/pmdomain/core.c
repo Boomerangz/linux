@@ -3138,6 +3138,19 @@ static int genpd_set_required_opp_dev(struct device *dev,
 	if (!dev_pm_opp_of_has_required_opp(base_dev))
 		return 0;
 
+	/*
+	 * The domain's attach_dev callback may already have populated the
+	 * device's OPP table (qcom CPRh adds the CPU OPPs to the virtual
+	 * device, which shares the table with the CPU through its DT node),
+	 * and a required device can only be set on an empty table. Such a
+	 * provider resolves required-opps itself: leave the table alone.
+	 */
+	if (dev_pm_opp_get_opp_count(dev) > 0 ||
+	    dev_pm_opp_get_opp_count(base_dev) > 0) {
+		dev_dbg(dev, "OPP table already populated, no required dev\n");
+		return 0;
+	}
+
 	ret = dev_pm_opp_set_config(base_dev, &config);
 	if (ret < 0)
 		return ret;
