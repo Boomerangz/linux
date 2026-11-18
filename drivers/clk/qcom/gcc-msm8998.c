@@ -1369,6 +1369,20 @@ static struct clk_branch gcc_boot_rom_ahb_clk = {
 	},
 };
 
+/* The MMSS "GPLL0 div" branch carries GPLL0 divided by two (300 MHz) */
+static struct clk_fixed_factor gcc_mmss_gpll0_div2 = {
+	.mult = 1,
+	.div = 2,
+	.hw.init = &(struct clk_init_data){
+		.name = "gcc_mmss_gpll0_div2",
+		.parent_hws = (const struct clk_hw *[]) {
+			&gpll0_out_main.clkr.hw,
+		},
+		.num_parents = 1,
+		.ops = &clk_fixed_factor_ops,
+	},
+};
+
 static struct clk_branch gcc_mmss_gpll0_div_clk = {
 	.halt_check = BRANCH_HALT_DELAY,
 	.clkr = {
@@ -1377,7 +1391,7 @@ static struct clk_branch gcc_mmss_gpll0_div_clk = {
 		.hw.init = &(struct clk_init_data){
 			.name = "gcc_mmss_gpll0_div_clk",
 			.parent_hws = (const struct clk_hw *[]) {
-				&gpll0_out_main.clkr.hw,
+				&gcc_mmss_gpll0_div2.hw,
 			},
 			.num_parents = 1,
 			.ops = &clk_branch2_ops,
@@ -3325,8 +3339,14 @@ static const struct regmap_config gcc_msm8998_regmap_config = {
 	.fast_io	= true,
 };
 
+static struct clk_hw *gcc_msm8998_hws[] = {
+	&gcc_mmss_gpll0_div2.hw,
+};
+
 static const struct qcom_cc_desc gcc_msm8998_desc = {
 	.config = &gcc_msm8998_regmap_config,
+	.clk_hws = gcc_msm8998_hws,
+	.num_clk_hws = ARRAY_SIZE(gcc_msm8998_hws),
 	.clks = gcc_msm8998_clocks,
 	.num_clks = ARRAY_SIZE(gcc_msm8998_clocks),
 	.resets = gcc_msm8998_resets,
