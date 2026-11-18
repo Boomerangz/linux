@@ -169,6 +169,16 @@ config ARM_QCOM_CPUFREQ_HW
 	  The driver implements the cpufreq interface for this HW engine.
 	  Say Y if you want to support CPUFreq HW.
 
+config ARM_QCOM_CPUFREQ_HW_8998
+	tristate "QCOM CPUFreq HW driver for MSM8998 (OSM programmed by the OS)"
+	depends on ARCH_QCOM && COMMON_CLK && QCOM_SCM
+	help
+	  On MSM8998 the bootloader does not program the Operating State
+	  Manager: this driver writes its lookup tables and sequencer (through
+	  SCM) from the OPP tables set up by the CPRh driver, then drives
+	  CPU frequency like qcom-cpufreq-hw. Taken from the msm8998-mainline
+	  6.1 tree (AngeloGioacchino Del Regno's OSM series).
+
 config ARM_RASPBERRYPI_CPUFREQ
 	tristate "Raspberry Pi cpufreq support"
 	depends on CLK_RASPBERRYPI || COMPILE_TEST
