@@ -222,6 +222,22 @@ static int qcom_smgr_request_buffering(struct qcom_smgr *smgr,
 		 */
 		req.items[0].val1 = 3;
 		req.items[0].val2 = 1;
+
+		/*
+		 * The proximity/light sensor carries ambient light as its
+		 * secondary data type; subscribe to it in the same report.
+		 */
+		if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT &&
+		    sensor->data_type_count > SNS_SMGR_DATA_TYPE_SECONDARY) {
+			req.item_len = 2;
+			req.items[1] = req.items[0];
+			req.items[1].data_type = SNS_SMGR_DATA_TYPE_SECONDARY;
+			if (sensor->data_types[1].max_sample_rate &&
+			    req.items[1].sampling_rate >
+				    sensor->data_types[1].max_sample_rate)
+				req.items[1].sampling_rate =
+					sensor->data_types[1].max_sample_rate;
+		}
 	} else
 		req.action = SNS_SMGR_BUFFERING_ACTION_DELETE;
 
@@ -270,7 +286,6 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
 	const struct sns_smgr_buffering_report_ind *ind = data;
 	struct qcom_smgr_sensor *sensor;
 	struct qcom_smgr_iio_data iio_data;
-	int temp;
 	u8 i, j;
 
 	for (i = 0; i < smgr->sensor_count; ++i) {
@@ -309,11 +324,36 @@ static void qcom_smgr_buffering_report_handler(struct qmi_handle *hdl,
 	 * sensor is covered).
 	 */
 	if (sensor->type == SNS_SMGR_SENSOR_TYPE_PROX_LIGHT) {
-		temp = le32_to_cpu(iio_data.values[0]);
-		temp >>= SMGR_VALUE_DECIMAL_OFFSET;
-		/* IIO convention: a larger value means closer; unitless 1 = near, 0 = far (scale 1) */
-		temp = temp & 1;
-		iio_data.values[0] = cpu_to_le32(temp);
+		/*
+		 * Proximity (primary) and ambient light (secondary) arrive in separate reports; the index
+		 * array says which one a report carries. Keep the last value
+		 * of the other.
+		 */
+		iio_data.values[0] = cpu_to_le32(READ_ONCE(sensor->last_values[0]));
+		iio_data.values[1] = cpu_to_le32(READ_ONCE(sensor->last_values[1]));
+		iio_data.values[2] = 0;
+		for (j = 0; j < ind->indices_len; ++j) {
+			const struct sns_smgr_buffering_report_index *x =
+				&ind->indices[j];
+			u32 v;
+
+			if (!x->sample_count ||
+			    x->first_sample_idx >= ind->samples_len)
+				continue;
+			v = le32_to_cpu(ind->samples[x->first_sample_idx].values[0]);
+			if (x->data_type == SNS_SMGR_DATA_TYPE_PRIMARY)
+				/* IIO convention: 1 = near, 0 = far (scale 1) */
+				iio_data.values[0] = cpu_to_le32((v >> SMGR_VALUE_DECIMAL_OFFSET) & 1);
+			else if (x->data_type == SNS_SMGR_DATA_TYPE_SECONDARY)
+				/*
+				 * Light sample: word 0 is "lux" in 16.16, but on
+				 * maple it comes out as ~0.0026 x word 1 (the ADC
+				 * counts: ~0-6 covered, ~50 room, ~260 facing a
+				 * lamp), i.e. a near-zero calibration factor.
+				 * Report the counts (scale 1, roughly lux).
+				 */
+				iio_data.values[1] = ind->samples[x->first_sample_idx].values[1];
+		}
 	}
 
 	for (j = 0; j < ARRAY_SIZE(iio_data.values); ++j)
@@ -457,7 +497,7 @@ static int qcom_smgr_iio_read_raw(struct iio_dev *iio_dev,
 		*val = priv->sensor->data_types[0].cur_sample_rate;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
-		if (chan->type == IIO_PROXIMITY) {
+		if (chan->type == IIO_PROXIMITY || chan->type == IIO_LIGHT) {
 			*val = 1;
 			return IIO_VAL_INT;
 		}
@@ -712,6 +752,18 @@ static const struct iio_chan_spec qcom_smgr_prox_iio_channels[] = {
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
 				      BIT(IIO_CHAN_INFO_SCALE) |
 				      BIT(IIO_CHAN_INFO_SAMP_FREQ)
+	},
+	{
+		.type = IIO_LIGHT,
+		.scan_index = 1,
+		.scan_type = {
+			.sign = 'u',
+			.realbits = 32,
+			.storagebits = 32,
+			.endianness = IIO_LE,
+		},
+		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
+				      BIT(IIO_CHAN_INFO_SCALE)
 	},
 	{
 		.type = IIO_TIMESTAMP,

@@ -127,11 +127,17 @@ struct sns_smgr_buffering_resp {
 	u8 ack_nak;
 };
 
-struct sns_smgr_buffering_report_metadata {
-	u32 val1;
+/*
+ * One entry per buffering request item: which samples of the report belong
+ * to which sensor/data type (a report carries all items of the request).
+ */
+struct sns_smgr_buffering_report_index {
+	u8 sensor_id;
+	u8 data_type;
+	u8 first_sample_idx;
 	u8 sample_count;
-	u32 timestamp;
-	u32 val2;
+	u32 first_sample_timestamp;
+	u32 sampling_rate;
 };
 
 struct sns_smgr_buffering_report_sample {
@@ -143,7 +149,8 @@ struct sns_smgr_buffering_report_sample {
 
 struct sns_smgr_buffering_report_ind {
 	u8 report_id;
-	struct sns_smgr_buffering_report_metadata metadata;
+	u8 indices_len;
+	struct sns_smgr_buffering_report_index indices[SNS_SMGR_DATA_TYPE_COUNT];
 	u8 samples_len;
 	struct sns_smgr_buffering_report_sample samples[SNS_SMGR_SAMPLES_MAX_LEN];
 	u8 val2;
