@@ -340,6 +340,7 @@ static u32 vfe_src_pad_code(struct vfe_line *line, u32 sink_code,
 		}
 		break;
 	case CAMSS_660:
+	case CAMSS_8998:
 	case CAMSS_2290:
 	case CAMSS_7280:
 	case CAMSS_8x96:
